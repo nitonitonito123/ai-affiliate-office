@@ -1,13 +1,16 @@
+
 import sqlite3
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "data" / "office.db"
+
 
 def connect():
     DB_PATH.parent.mkdir(exist_ok=True)
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     return con
+
 
 def init_db():
     with connect() as con:
@@ -20,6 +23,23 @@ def init_db():
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """)
+
+        # 既存データベースに不足している列を追加
+        columns = [
+            row["name"]
+            for row in con.execute("PRAGMA table_info(tasks)").fetchall()
+        ]
+
+        if "details" not in columns:
+            con.execute(
+                "ALTER TABLE tasks ADD COLUMN details TEXT NOT NULL DEFAULT ''"
+            )
+
+        if "priority" not in columns:
+            con.execute(
+                "ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT '中'"
+            )
+
         con.execute("""
         CREATE TABLE IF NOT EXISTS articles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,16 +50,34 @@ def init_db():
         )
         """)
 
+
 def get_tasks():
     with connect() as con:
-        rows = con.execute("SELECT * FROM tasks ORDER BY id DESC").fetchall()
+        rows = con.execute(
+            "SELECT * FROM tasks ORDER BY id DESC"
+        ).fetchall()
         return [dict(r) for r in rows]
+
 
 def get_articles():
     with connect() as con:
-        rows = con.execute("SELECT * FROM articles ORDER BY id DESC").fetchall()
+        rows = con.execute(
+            "SELECT * FROM articles ORDER BY id DESC"
+        ).fetchall()
         return [dict(r) for r in rows]
 
-def add_task(title, staff):
+
+def add_task(title, staff, details="", priority="中"):
     with connect() as con:
-        con.execute("INSERT INTO tasks(title, staff) VALUES (?, ?)", (title, staff))
+        con.execute("""
+            INSERT INTO tasks (title, staff, details, priority)
+            VALUES (?, ?, ?, ?)
+        """, (title, staff, details, priority))
+
+
+def update_task_status(task_id, status):
+    with connect() as con:
+        con.execute(
+            "UPDATE tasks SET status = ? WHERE id = ?",
+            (status, task_id)
+        )
