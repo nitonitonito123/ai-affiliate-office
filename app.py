@@ -2,7 +2,7 @@
 import streamlit as st
 from database import (
     init_db, get_articles, get_tasks,
-    add_task, update_task_status, delete_task
+    add_task, update_task_status
 )
 from agents.team import STAFF
 
@@ -153,16 +153,9 @@ if tasks:
                         selected_status
                     )
                     st.rerun()
-
-                if st.button(
-                    "🗑️ このタスクを削除",
-                    key=f"delete_{task['id']}"
-                ):
-                    delete_task(task["id"])
-                    st.success("タスクを削除しました。")
-                    st.rerun()
 else:
     st.info("まだタスクはありません。")
+
 st.divider()
 
 # 開発状況
