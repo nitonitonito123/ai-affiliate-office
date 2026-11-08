@@ -6,7 +6,7 @@ DB_PATH = Path(__file__).parent / "data" / "office.db"
 
 
 def connect():
-    DB_PATH.parent.mkdir(exist_ok=True)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     return con
@@ -14,6 +14,7 @@ def connect():
 
 def init_db():
     with connect() as con:
+        # タスク管理テーブル
         con.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,22 +25,29 @@ def init_db():
         )
         """)
 
-        # 既存データベースに不足している列を追加
+        # 既存データベースの列を確認
         columns = [
             row["name"]
-            for row in con.execute("PRAGMA table_info(tasks)").fetchall()
+            for row in con.execute(
+                "PRAGMA table_info(tasks)"
+            ).fetchall()
         ]
 
+        # 詳細列を追加
         if "details" not in columns:
-            con.execute(
-                "ALTER TABLE tasks ADD COLUMN details TEXT NOT NULL DEFAULT ''"
-            )
+            con.execute("""
+                ALTER TABLE tasks
+                ADD COLUMN details TEXT NOT NULL DEFAULT ''
+            """)
 
+        # 優先度列を追加
         if "priority" not in columns:
-            con.execute(
-                "ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT '中'"
-            )
+            con.execute("""
+                ALTER TABLE tasks
+                ADD COLUMN priority TEXT NOT NULL DEFAULT '中'
+            """)
 
+        # 記事管理テーブル
         con.execute("""
         CREATE TABLE IF NOT EXISTS articles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,7 +64,8 @@ def get_tasks():
         rows = con.execute(
             "SELECT * FROM tasks ORDER BY id DESC"
         ).fetchall()
-        return [dict(r) for r in rows]
+
+        return [dict(row) for row in rows]
 
 
 def get_articles():
@@ -64,13 +73,19 @@ def get_articles():
         rows = con.execute(
             "SELECT * FROM articles ORDER BY id DESC"
         ).fetchall()
-        return [dict(r) for r in rows]
+
+        return [dict(row) for row in rows]
 
 
 def add_task(title, staff, details="", priority="中"):
     with connect() as con:
         con.execute("""
-            INSERT INTO tasks (title, staff, details, priority)
+            INSERT INTO tasks (
+                title,
+                staff,
+                details,
+                priority
+            )
             VALUES (?, ?, ?, ?)
         """, (title, staff, details, priority))
 
@@ -81,7 +96,9 @@ def update_task_status(task_id, status):
             "UPDATE tasks SET status = ? WHERE id = ?",
             (status, task_id)
         )
-        def delete_task(task_id):
+
+
+def delete_task(task_id):
     with connect() as con:
         con.execute(
             "DELETE FROM tasks WHERE id = ?",
