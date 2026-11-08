@@ -81,3 +81,9 @@ def update_task_status(task_id, status):
             "UPDATE tasks SET status = ? WHERE id = ?",
             (status, task_id)
         )
+        def delete_task(task_id):
+    with connect() as con:
+        con.execute(
+            "DELETE FROM tasks WHERE id = ?",
+            (task_id,)
+        )
