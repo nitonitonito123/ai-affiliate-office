@@ -118,33 +118,51 @@ if tasks:
         with st.container(border=True):
             col1, col2 = st.columns([3, 1])
 
-            for task in tasks:
-    with st.container(border=True):
-        st.write(f"**{task['title']}**")
-        st.caption(f"担当：{task['staff']}")
+            with col1:
+                st.markdown(f"**{task['title']}**")
+                st.write(
+                    f"担当：{task['staff']} ｜ "
+                    f"優先度：{task['priority']}"
+                )
 
-        col1, col2 = st.columns([3, 1])
+                if task["details"]:
+                    st.caption(task["details"])
 
-        with col1:
-            status = st.selectbox(
-                "進行状況",
-                ["未着手", "進行中", "完了"],
-                index=["未着手", "進行中", "完了"].index(task["status"]),
-                key=f"status_{task['id']}"
-            )
+                st.caption(
+                    f"登録日時：{task['created_at']}"
+                )
 
-            if status != task["status"]:
-                update_task_status(task["id"], status)
-                st.rerun()
+            with col2:
+                status_options = [
+                    "未着手", "進行中", "完了"
+                ]
 
-        with col2:
-            if st.button("🗑️ 削除", key=f"delete_{task['id']}"):
-                delete_task(task["id"])
-                st.success("タスクを削除しました。")
-                st.rerun()
+                current_status = task["status"]
+
+                selected_status = st.selectbox(
+                    "進捗状況",
+                    status_options,
+                    index=status_options.index(current_status)
+                    if current_status in status_options else 0,
+                    key=f"status_{task['id']}"
+                )
+
+                if selected_status != current_status:
+                    update_task_status(
+                        task["id"],
+                        selected_status
+                    )
+                    st.rerun()
+
+                if st.button(
+                    "🗑️ このタスクを削除",
+                    key=f"delete_{task['id']}"
+                ):
+                    delete_task(task["id"])
+                    st.success("タスクを削除しました。")
+                    st.rerun()
 else:
     st.info("まだタスクはありません。")
-
 st.divider()
 
 # 開発状況
