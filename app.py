@@ -2,7 +2,7 @@
 import streamlit as st
 from database import (
     init_db, get_articles, get_tasks,
-    add_task, update_task_status
+    add_task, update_task_status, delete_task
 )
 from agents.team import STAFF
 
