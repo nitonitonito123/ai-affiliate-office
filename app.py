@@ -210,15 +210,27 @@ if st.button("🤖 ボボに記事を作成させる", use_container_width=True)
 ・タイトルと本文を出力する
 """
 
-                    response = client.models.generate_content(
-    model="gemini-3.8-flash",
-    contents=prompt,
-    config=genai.types.GenerateContentConfig(
-        thinking_config=genai.types.ThinkingConfig(
-            thinking_level="LOW"
+                    try:
+    response = client.models.generate_content(
+        model="gemini-3.8-flash",
+        contents=prompt,
+        config=genai.types.GenerateContentConfig(
+            thinking_config=genai.types.ThinkingConfig(
+                thinking_level="LOW"
+            )
         )
     )
-)
+
+except Exception as e:
+    if "503" in str(e) or "UNAVAILABLE" in str(e):
+        st.warning("通常モデルが混雑中です。予備モデルに切り替えます...")
+
+        response = client.models.generate_content(
+            model="gemini-3.5-flash-lite",
+            contents=prompt
+        )
+    else:
+        raise
 
                     generated_text = response.text
 
