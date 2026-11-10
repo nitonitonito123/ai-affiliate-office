@@ -12,181 +12,213 @@ from database import (
 from google import genai
 from agents.team import STAFF
 
+
+# --------------------------------
+# ページ設定
+# --------------------------------
+
 st.set_page_config(
     page_title="AI Affiliate Office",
-    page_icon="🐻",
+    page_icon="🤖",
     layout="wide"
 )
 
 init_db()
 
-st.title("🐻 AI Affiliate Office")
-st.caption("6体のAIスタッフでアフィリエイト運営を管理")
+st.title("🤖 AI Affiliate Office")
+st.caption("6人のAIスタッフと運営するアフィリエイト事務所")
 
-articles = get_articles()
-tasks = get_tasks()
 
-# ダッシュボード
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("AIスタッフ", "6体")
-c2.metric("記事数", len(articles))
-c3.metric(
-    "進行中タスク",
-    sum(t["status"] == "進行中" for t in tasks)
-)
-c4.metric("累計報酬", "¥0")
+# --------------------------------
+# AIスタッフ表示
+# --------------------------------
 
-st.divider()
+st.header("👥 AIスタッフ")
 
-# AIスタッフ
-st.subheader("🤖 AIスタッフ")
+if isinstance(STAFF, dict):
+    staff_items = list(STAFF.items())
+else:
+    staff_items = [
+        (
+            item.get("name", f"スタッフ{i + 1}"),
+            item
+        ) if isinstance(item, dict)
+        else (str(item), {})
+        for i, item in enumerate(STAFF)
+    ]
+
+staff_names = [str(name) for name, _ in staff_items]
+
 cols = st.columns(3)
 
-for i, person in enumerate(STAFF):
+for i, (name, info) in enumerate(staff_items):
+    if isinstance(info, dict):
+        description = (
+            info.get("description")
+            or info.get("role")
+            or info.get("job")
+            or "AIスタッフ"
+        )
+    else:
+        description = str(info)
+
     with cols[i % 3]:
-        with st.container(border=True):
-            st.markdown(
-                f"### {person['emoji']} {person['name']}"
-            )
-            st.write(f"**担当：** {person['role']}")
-            st.caption(person["description"])
+        st.info(f"**{name}**\n\n{description}")
+
 
 st.divider()
 
+
+# --------------------------------
+# ダッシュボード
+# --------------------------------
+
+st.header("📊 ダッシュボード")
+
+tasks = get_tasks()
+articles = get_articles()
+
+total_tasks = len(tasks)
+completed_tasks = sum(
+    1 for task in tasks
+    if task["status"] == "完了"
+)
+
+total_articles = len(articles)
+
+col1, col2, col3 = st.columns(3)
+
+col1.metric("登録タスク", total_tasks)
+col2.metric("完了タスク", completed_tasks)
+col3.metric("保存済み記事", total_articles)
+
+
+st.divider()
+
+
+# --------------------------------
 # タスク登録
-st.subheader("📝 タスク管理")
+# --------------------------------
 
-left, right = st.columns([1, 1])
+st.header("📝 タスク管理")
 
-with left:
-    st.markdown("### 新しいタスクを登録")
+st.subheader("新しいタスクを登録")
 
-    with st.form("task_form"):
-        title = st.text_input(
-            "タスク名",
-            placeholder="例：冬向け人気商品を10件調査"
-        )
+with st.form("task_form"):
+    task_title = st.text_input("タスク名")
 
-        details = st.text_area(
-            "詳細指示・作業内容",
-            placeholder="調査する商品ジャンル、条件、必要な情報などを入力"
-        )
+    task_staff = st.selectbox(
+        "担当スタッフ",
+        staff_names
+    )
 
-        staff = st.selectbox(
-            "担当スタッフ",
-            [p["name"] for p in STAFF]
-        )
+    task_details = st.text_area("タスクの詳細")
 
-        priority = st.selectbox(
-            "優先度",
-            ["高", "中", "低"],
-            index=1
-        )
+    task_priority = st.selectbox(
+        "優先度",
+        ["高", "中", "低"],
+        index=1
+    )
 
-        submitted = st.form_submit_button(
-            "タスク登録",
-            use_container_width=True
-        )
+    task_submit = st.form_submit_button(
+        "タスクを登録",
+        use_container_width=True
+    )
 
-        if submitted:
-            if title.strip():
-                add_task(
-                    title.strip(),
-                    staff,
-                    details.strip(),
-                    priority
-                )
-                st.success("タスクを登録しました。")
-                st.rerun()
-            else:
-                st.warning("タスク名を入力してください。")
+    if task_submit:
+        if task_title.strip():
+            add_task(
+                task_title.strip(),
+                task_staff,
+                task_details.strip(),
+                task_priority
+            )
+            st.success("タスクを登録しました！")
+            st.rerun()
+        else:
+            st.warning("タスク名を入力してください。")
 
-with right:
-    st.markdown("### 📊 タスク状況")
 
-    total = len(tasks)
-    completed = sum(t["status"] == "完了" for t in tasks)
-    in_progress = sum(t["status"] == "進行中" for t in tasks)
-    not_started = sum(t["status"] == "未着手" for t in tasks)
-
-    st.metric("全タスク数", total)
-    st.metric("未着手", not_started)
-    st.metric("進行中", in_progress)
-    st.metric("完了", completed)
-
-st.divider()
-
+# --------------------------------
 # タスク一覧
-st.subheader("📋 登録済みタスク一覧")
+# --------------------------------
+
+st.subheader("📋 登録済みタスク")
+
+tasks = get_tasks()
 
 if tasks:
     for task in tasks:
-        with st.container(border=True):
-            col1, col2 = st.columns([3, 1])
+        with st.expander(task["title"]):
+            st.write(f"担当：{task['staff']}")
+            st.write(f"優先度：{task['priority']}")
 
-            with col1:
-                st.markdown(f"**{task['title']}**")
-                st.write(
-                    f"担当：{task['staff']} ｜ "
-                    f"優先度：{task['priority']}"
+            if task.get("details"):
+                st.write(f"詳細：{task['details']}")
+
+            status_options = [
+                "未着手",
+                "進行中",
+                "完了"
+            ]
+
+            current_status = task["status"]
+
+            if current_status not in status_options:
+                current_status = "未着手"
+
+            new_status = st.selectbox(
+                "進捗状況",
+                status_options,
+                index=status_options.index(current_status),
+                key=f"task_status_{task['id']}"
+            )
+
+            if new_status != task["status"]:
+                update_task_status(
+                    task["id"],
+                    new_status
                 )
-
-                if task["details"]:
-                    st.caption(task["details"])
-
-                st.caption(
-                    f"登録日時：{task['created_at']}"
-                )
-
-            with col2:
-                status_options = [
-                    "未着手", "進行中", "完了"
-                ]
-
-                current_status = task["status"]
-
-                selected_status = st.selectbox(
-                    "進捗状況",
-                    status_options,
-                    index=status_options.index(current_status)
-                    if current_status in status_options else 0,
-                    key=f"status_{task['id']}"
-                )
-
-                if selected_status != current_status:
-                    update_task_status(
-                        task["id"],
-                        selected_status
-                    )
-                    st.rerun()
+                st.rerun()
 else:
-    st.info("まだタスクはありません。")
+    st.info("まだタスクは登録されていません。")
+
 
 st.divider()
 
-# AI記事自動生成
-st.subheader("✍️ ボボ：AI記事自動生成")
+
+# --------------------------------
+# AI記事生成
+# --------------------------------
+
+st.header("✍️ AI記事生成")
+st.caption("ボボが記事の下書きを作成します。")
 
 topic = st.text_input(
     "記事のテーマ",
-    placeholder="例：初心者向けの節約術"
+    placeholder="例：初心者におすすめの節約方法"
 )
 
 genre = st.selectbox(
     "記事ジャンル",
     [
+        "商品紹介",
         "節約・お金",
-        "商品レビュー",
-        "暮らし・生活",
-        "仕事・副業",
-        "エンタメ",
+        "生活・暮らし",
+        "美容・健康",
+        "趣味・エンタメ",
         "その他"
     ]
 )
 
 length = st.selectbox(
-    "記事の文字数",
-    ["1500文字", "3000文字", "4000文字", "5000文字"]
+    "記事の長さ",
+    [
+        "短め（約1,000文字）",
+        "標準（約2,000文字）",
+        "長め（約3,000文字）"
+    ],
+    index=1
 )
 
 if st.button(
@@ -205,26 +237,35 @@ if st.button(
         else:
             try:
                 with st.spinner("ボボが記事を執筆しています..."):
-                    client = genai.Client(api_key=api_key)
+
+                    client = genai.Client(
+                        api_key=api_key
+                    )
 
                     prompt = f"""
-あなたはnote専門のプロのWebライターです。
-執筆担当AIスタッフ「ボボ」として記事を作成してください。
+あなたはプロのWebライターです。
+noteに投稿する記事を作成してください。
 
-テーマ：{topic}
-ジャンル：{genre}
-文字数の目安：{length}
+【テーマ】
+{topic}
 
-条件：
-・読者にとって役立つ具体的な内容にする
-・読みやすい自然な日本語にする
+【ジャンル】
+{genre}
+
+【文字数】
+{length}
+
+【執筆ルール】
+・読者にとって役立つ内容にする
+・自然で読みやすい日本語を使う
 ・タイトルを最初に付ける
-・見出しを適切に使う
-・根拠のない数字や事実を作らない
+・見出しを適切に使用する
+・具体例を入れる
+・誇張や根拠のない断定を避ける
 ・最後にまとめを入れる
-・noteに投稿できるMarkdown形式にする
-・タイトルと本文を出力する
-・指定された文字数を目安にする
+・そのままnoteの下書きに使える形式にする
+
+タイトルと本文を分けず、完成した記事として出力してください。
 """
 
                     try:
@@ -239,13 +280,14 @@ if st.button(
                         )
 
                     except Exception as e:
+                        error_text = str(e)
+
                         if (
-                            "503" in str(e)
-                            or "UNAVAILABLE" in str(e)
+                            "503" in error_text
+                            or "UNAVAILABLE" in error_text
                         ):
                             st.warning(
-                                "通常モデルが混雑中です。"
-                                "予備モデルに切り替えます..."
+                                "通常モデルが混雑中です。予備モデルに切り替えます..."
                             )
 
                             response = client.models.generate_content(
@@ -267,48 +309,57 @@ if st.button(
             except Exception as e:
                 st.error(f"記事生成エラー：{e}")
 
-# 生成された記事
-if "generated_article" in st.session_state:
-    st.markdown("### 📝 生成された記事")
 
-    edited_article = st.text_area(
-        "記事内容（編集できます）",
-        value=st.session_state["generated_article"],
-        height=500,
-        key="article_editor"
+# --------------------------------
+# 生成記事の確認・保存
+# --------------------------------
+
+if st.session_state.get("generated_article"):
+
+    st.subheader("📄 生成された記事")
+
+    generated_text = st.session_state["generated_article"]
+
+    st.text_area(
+        "記事内容",
+        value=generated_text,
+        height=400,
+        key="generated_article_preview"
     )
 
     if st.button(
-        "💾 記事を下書き保存",
+        "📚 この記事を保存する",
         use_container_width=True
     ):
-        if edited_article.strip():
-            lines = edited_article.strip().splitlines()
-            article_title = topic.strip()
+        title = generated_text.splitlines()[0].strip()
 
-            for line in lines:
-                clean_line = line.strip().lstrip("#").strip()
+        title = title.lstrip("#").strip()
 
-                if clean_line:
-                    article_title = clean_line
-                    break
+        if not title:
+            title = "無題の記事"
 
-            add_article(
-                article_title,
-                edited_article.strip()
-            )
+        add_article(
+            title,
+            generated_text
+        )
 
-            st.success("記事を下書き保存しました！")
-            del st.session_state["generated_article"]
-            st.rerun()
+        st.session_state.pop(
+            "generated_article",
+            None
+        )
 
-        else:
-            st.warning("記事内容を入力してください。")
+        st.success("記事を保存しました！")
+        st.rerun()
+
 
 st.divider()
 
-# 保存済み記事
-st.subheader("📚 保存済み記事")
+
+# --------------------------------
+# 保存済み記事・編集機能
+# --------------------------------
+
+st.header("📚 保存済み記事")
 
 saved_articles = get_articles()
 
@@ -326,7 +377,7 @@ if saved_articles:
 
     selected_article = article_options[selected_title]
 
-    st.markdown("### ✏️ 記事の編集")
+    st.subheader("✏️ 記事の編集")
 
     edited_title = st.text_input(
         "記事タイトル",
@@ -341,21 +392,29 @@ if saved_articles:
         key=f"body_{selected_article['id']}"
     )
 
-    if st.button("💾 記事を更新", use_container_width=True):
-        if not edited_title.strip() or not edited_body.strip():
+    if st.button(
+        "💾 記事を更新",
+        use_container_width=True
+    ):
+        if (
+            not edited_title.strip()
+            or not edited_body.strip()
+        ):
             st.warning("タイトルと本文を入力してください。")
+
         else:
             update_article(
                 selected_article["id"],
                 edited_title.strip(),
                 edited_body.strip()
             )
+
             st.success("記事を更新しました！")
             st.rerun()
 
     st.divider()
 
-    st.markdown("### 📖 保存済み記事一覧")
+    st.subheader("📖 保存済み記事一覧")
 
     for article in saved_articles:
         with st.expander(article["title"]):
@@ -365,21 +424,25 @@ if saved_articles:
 else:
     st.info("まだ保存された記事はありません。")
 
-# 開発状況
+
 st.divider()
-st.subheader("🚀 開発ロードマップ")
+
+
+# --------------------------------
+# 今後の開発予定
+# --------------------------------
+
+st.header("🚀 今後の開発予定")
 
 st.markdown("""
-1. **基盤構築：完了**
-2. **タスク管理機能：拡張中**
-3. 商品リサーチ：楽天公式API接続
-4. AI記事制作：記事の自動下書き生成
-5. 公開支援：note向け原稿出力
-6. 効果測定：クリック数・成果・報酬分析
+- 楽天アフィリエイトAPIとの連携
+- 商品リサーチの自動化
+- 商品紹介記事の品質チェック
+- アクセス数・収益分析
+- note投稿作業の効率化
 """)
 
-st.warning(
-    "現在は開発用MVPです。"
-    "AIによる実作業、楽天商品検索、note投稿、"
-    "報酬連携は今後実装します。"
+st.caption(
+    "現在は記事生成・保存・編集とタスク管理が利用できます。"
+    "外部サービスとの自動連携は今後の開発項目です。"
 )
