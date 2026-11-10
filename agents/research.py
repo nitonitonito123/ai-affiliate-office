@@ -6,9 +6,11 @@ from google import genai
 def create_research_plan(keyword, category, budget, conditions=""):
     """クルミが商品リサーチの調査計画を作成する"""
 
-    client = genai.Client(
-        api_key=st.secrets["GEMINI_API_KEY"]
-    )
+    api_key = st.secrets.get("GEMINI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("Gemini APIキーが設定されていません。")
+
+    client = genai.Client(api_key=api_key)
 
     prompt = f"""
 あなたはAI Affiliate Officeの
@@ -48,16 +50,33 @@ def create_research_plan(keyword, category, budget, conditions=""):
   実在商品の検索結果ではありません。
 """
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.8-flash",
-            contents=prompt
-        )
-        return response.text
+    models = [
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+    ]
 
-    except Exception:
-        response = client.models.generate_content(
-            model="gemini-3.5-flash-lite",
-            contents=prompt
-        )
-        return response.text
+    errors = []
+
+    for model in models:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt
+            )
+
+            if response.text and response.text.strip():
+                return response.text
+
+            errors.append(f"{model}: 応答が空でした")
+
+        except Exception as e:
+            errors.append(f"{model}: {str(e)[:200]}")
+            continue
+
+    raise RuntimeError(
+        "すべてのGeminiモデルで生成できませんでした。"
+        "時間をおいて再試行してください。\n"
+        + "\n".join(errors)
+    )
