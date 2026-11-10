@@ -27,6 +27,18 @@ st.set_page_config(
 
 init_db()
 
+# 商品選択状態の初期化
+if "selected_rakuten_item" not in st.session_state:
+    st.session_state["selected_rakuten_item"] = None
+
+# 商品選択後、記事テーマへ商品名を反映
+if st.session_state.pop("apply_selected_item_to_topic", False):
+    selected_item = st.session_state.get("selected_rakuten_item")
+
+    if selected_item:
+        st.session_state["topic_input"] = selected_item.get("name", "")
+
+
 st.title("🤖 AI Affiliate Office")
 st.caption("6人のAIスタッフと運営するアフィリエイト事務所")
 
@@ -107,6 +119,7 @@ st.header("📝 タスク管理")
 st.subheader("新しいタスクを登録")
 
 with st.form("task_form"):
+
     task_title = st.text_input("タスク名")
 
     task_staff = st.selectbox(
@@ -135,8 +148,10 @@ with st.form("task_form"):
                 task_details.strip(),
                 task_priority
             )
+
             st.success("タスクを登録しました！")
             st.rerun()
+
         else:
             st.warning("タスク名を入力してください。")
 
@@ -150,8 +165,11 @@ st.subheader("📋 登録済みタスク")
 tasks = get_tasks()
 
 if tasks:
+
     for task in tasks:
+
         with st.expander(task["title"]):
+
             st.write(f"担当：{task['staff']}")
             st.write(f"優先度：{task['priority']}")
 
@@ -177,11 +195,14 @@ if tasks:
             )
 
             if new_status != task["status"]:
+
                 update_task_status(
                     task["id"],
                     new_status
                 )
+
                 st.rerun()
+
 else:
     st.info("まだタスクは登録されていません。")
 
@@ -198,8 +219,24 @@ st.caption("ボボが記事の下書きを作成します。")
 
 topic = st.text_input(
     "記事のテーマ",
-    placeholder="例：初心者におすすめの節約方法"
+    placeholder="例：初心者におすすめの節約方法",
+    key="topic_input"
 )
+
+# 選択中の商品を表示
+selected_item = st.session_state.get("selected_rakuten_item")
+
+if selected_item:
+
+    st.success(
+        f"🛒 紹介予定商品：{selected_item.get('name', '商品名未取得')}"
+    )
+
+    if st.button("選択した商品を解除する"):
+
+        st.session_state["selected_rakuten_item"] = None
+        st.rerun()
+
 
 genre = st.selectbox(
     "記事ジャンル",
@@ -223,29 +260,76 @@ length = st.selectbox(
     index=1
 )
 
+
 if st.button(
     "🤖 ボボに記事を作成させる",
     use_container_width=True
 ):
+
     if not topic.strip():
+
         st.warning("記事のテーマを入力してください。")
 
     else:
+
         api_key = st.secrets.get("GEMINI_API_KEY", "")
 
         if not api_key:
+
             st.error("Gemini APIキーが設定されていません。")
 
         else:
+
             try:
+
                 with st.spinner("ボボが記事を執筆しています..."):
 
                     client = genai.Client(
                         api_key=api_key
                     )
 
+                    # 選択中の商品情報を取得
+                    selected_item = st.session_state.get(
+                        "selected_rakuten_item"
+                    )
+
+                    if selected_item:
+
+                        product_details = f"""
+【紹介する商品情報】
+
+商品名：
+{selected_item.get("name", "未取得")}
+
+価格：
+{selected_item.get("price", "未取得")}円
+
+ショップ：
+{selected_item.get("shop_name", "未取得")}
+
+評価：
+{selected_item.get("review_average", "未取得")} / 5
+
+口コミ件数：
+{selected_item.get("review_count", "未取得")}件
+
+商品URL：
+{selected_item.get("affiliate_url") or selected_item.get("url", "未取得")}
+"""
+
+                    else:
+
+                        product_details = """
+【紹介する商品情報】
+商品は指定されていません。
+記事テーマに沿って一般的な記事を作成してください。
+"""
+
+
                     prompt = f"""
-あなたはプロのWebライターです。
+あなたはプロのWebライターであり、
+AI Affiliate Officeの執筆担当「ボボ」です。
+
 noteに投稿する記事を作成してください。
 
 【テーマ】
@@ -257,20 +341,47 @@ noteに投稿する記事を作成してください。
 【文字数】
 {length}
 
+{product_details}
+
 【執筆ルール】
+
 ・読者にとって役立つ内容にする
 ・自然で読みやすい日本語を使う
 ・タイトルを最初に付ける
 ・見出しを適切に使用する
 ・具体例を入れる
-・誇張や根拠のない断定を避ける
 ・最後にまとめを入れる
 ・そのままnoteの下書きに使える形式にする
+・購入を検討している読者の疑問に答える
+・商品のメリットだけでなく注意点も説明する
+・過度な購入誘導や誇張表現を避ける
 
-タイトルと本文を分けず、完成した記事として出力してください。
+【商品情報に関する重要ルール】
+
+・提供された商品情報を優先して使用する
+・確認できていない性能、機能、効果を捏造しない
+・実際に確認していない口コミ内容を作らない
+・価格、評価、口コミ件数を変更しない
+・不明な情報は「未確認」と記載する
+・商品URLは提供されたものをそのまま記載する
+・商品を実際に使用したかのような体験談を書かない
+
+【記事構成】
+
+1. 読者の悩みや疑問
+2. 商品の概要
+3. 商品の特徴
+4. メリット
+5. 注意点・デメリット
+6. 商品選びのポイント
+7. まとめ
+
+タイトルと本文を分けず、
+完成した記事として出力してください。
 """
 
                     try:
+
                         response = client.models.generate_content(
                             model="gemini-3.8-flash",
                             contents=prompt,
@@ -282,12 +393,14 @@ noteに投稿する記事を作成してください。
                         )
 
                     except Exception as e:
+
                         error_text = str(e)
 
                         if (
                             "503" in error_text
                             or "UNAVAILABLE" in error_text
                         ):
+
                             st.warning(
                                 "通常モデルが混雑中です。予備モデルに切り替えます..."
                             )
@@ -296,19 +409,26 @@ noteに投稿する記事を作成してください。
                                 model="gemini-3.5-flash-lite",
                                 contents=prompt
                             )
+
                         else:
                             raise
+
 
                     generated_text = response.text
 
                     if not generated_text:
+
                         st.error("記事を生成できませんでした。")
 
                     else:
+
                         st.session_state["generated_article"] = generated_text
+
                         st.success("記事が完成しました！")
 
+
             except Exception as e:
+
                 st.error(f"記事生成エラー：{e}")
 
 
@@ -333,6 +453,7 @@ if st.session_state.get("generated_article"):
         "📚 この記事を保存する",
         use_container_width=True
     ):
+
         title = generated_text.splitlines()[0].strip()
         title = title.lstrip("#").strip()
 
@@ -397,13 +518,16 @@ if saved_articles:
         "💾 記事を更新",
         use_container_width=True
     ):
+
         if (
             not edited_title.strip()
             or not edited_body.strip()
         ):
+
             st.warning("タイトルと本文を入力してください。")
 
         else:
+
             update_article(
                 selected_article["id"],
                 edited_title.strip(),
@@ -413,16 +537,20 @@ if saved_articles:
             st.success("記事を更新しました！")
             st.rerun()
 
+
     st.divider()
 
     st.subheader("📖 保存済み記事一覧")
 
     for article in saved_articles:
+
         with st.expander(article["title"]):
+
             st.caption(f"状態：{article['status']}")
             st.markdown(article["body"])
 
 else:
+
     st.info("まだ保存された記事はありません。")
 
 
@@ -436,7 +564,7 @@ st.divider()
 st.header("🚀 今後の開発予定")
 
 st.markdown("""
-- 楽天アフィリエイトAPIとの連携
+- 楽天アフィリエイトAPIとの連携強化
 - 商品リサーチの自動化
 - 商品紹介記事の品質チェック
 - アクセス数・収益分析
@@ -444,8 +572,9 @@ st.markdown("""
 """)
 
 st.caption(
-    "現在は記事生成・保存・編集とタスク管理が利用できます。"
-    "外部サービスとの自動連携は今後の開発項目です。"
+    "現在は記事生成・保存・編集、タスク管理、"
+    "商品リサーチ計画、楽天商品検索機能を搭載しています。"
+    "外部サービスとの自動連携には別途設定が必要です。"
 )
 
 
@@ -460,6 +589,7 @@ st.header("🔎 商品リサーチ")
 st.write("クルミが商品リサーチの調査計画を作成します。")
 
 with st.form("product_research_form"):
+
     research_keyword = st.text_input(
         "検索キーワード",
         placeholder="例：ワイヤレスイヤホン"
@@ -495,12 +625,19 @@ with st.form("product_research_form"):
         use_container_width=True
     )
 
+
 if research_submit:
+
     if not research_keyword.strip():
+
         st.warning("検索キーワードを入力してください。")
+
     else:
+
         try:
+
             with st.spinner("クルミが調査計画を作成しています..."):
+
                 research_result = create_research_plan(
                     research_keyword.strip(),
                     research_category,
@@ -509,16 +646,22 @@ if research_submit:
                 )
 
             st.session_state["research_result"] = research_result
+
             st.success("クルミの調査計画が完成しました！")
 
         except Exception as e:
+
             st.error(f"リサーチエラー：{e}")
 
+
 if st.session_state.get("research_result"):
+
     st.subheader("📋 クルミのリサーチ結果")
+
     st.markdown(st.session_state["research_result"])
 
     if st.button("🗑️ リサーチ結果を閉じる"):
+
         st.session_state.pop("research_result", None)
         st.rerun()
 
@@ -531,6 +674,7 @@ st.divider()
 # --------------------------------
 
 st.header("🛒 楽天市場 商品検索")
+
 st.caption(
     "楽天APIを利用して商品情報を取得します。"
     "API認証情報の設定後に検索できます。"
@@ -574,10 +718,13 @@ with st.form("rakuten_search_form"):
 if rakuten_submit:
 
     if not rakuten_keyword.strip():
+
         st.warning("検索キーワードを入力してください。")
 
     else:
+
         try:
+
             with st.spinner("楽天市場の商品を検索しています..."):
 
                 rakuten_results = search_rakuten_items(
@@ -587,18 +734,23 @@ if rakuten_submit:
                 )
 
             st.session_state["rakuten_results"] = rakuten_results
+
             st.session_state["rakuten_search_keyword"] = (
                 rakuten_keyword.strip()
             )
 
             if rakuten_results:
+
                 st.success(
                     f"{len(rakuten_results)}件の商品が見つかりました。"
                 )
+
             else:
+
                 st.info("該当する商品は見つかりませんでした。")
 
         except Exception as e:
+
             st.error(f"楽天商品検索エラー：{e}")
 
 
@@ -608,9 +760,7 @@ if rakuten_submit:
 
 if "rakuten_results" in st.session_state:
 
-    st.subheader(
-        "📦 楽天市場の商品検索結果"
-    )
+    st.subheader("📦 楽天市場の商品検索結果")
 
     st.caption(
         f"検索キーワード："
@@ -628,12 +778,16 @@ if "rakuten_results" in st.session_state:
             with col_image:
 
                 if item.get("image"):
+
                     st.image(
                         item["image"],
                         use_container_width=True
                     )
+
                 else:
+
                     st.write("画像なし")
+
 
             with col_info:
 
@@ -644,9 +798,13 @@ if "rakuten_results" in st.session_state:
                 price = item.get("price", 0)
 
                 if price:
+
                     st.write(f"価格：{price:,}円")
+
                 else:
+
                     st.write("価格：未取得")
+
 
                 st.write(
                     f"ショップ：{item.get('shop_name', '未取得')}"
@@ -660,12 +818,14 @@ if "rakuten_results" in st.session_state:
                     f"口コミ件数：{item.get('review_count', 0)}件"
                 )
 
+
                 product_url = (
                     item.get("affiliate_url")
                     or item.get("url")
                 )
 
                 if product_url:
+
                     st.link_button(
                         "商品ページを開く",
                         product_url,
@@ -673,9 +833,28 @@ if "rakuten_results" in st.session_state:
                     )
 
                     if item.get("affiliate_url"):
+
                         st.caption("アフィリエイトURL")
+
                     else:
+
                         st.caption(
                             "通常の商品URLです。"
                             "アフィリエイトURLは未取得です。"
                         )
+
+
+                # 商品を記事作成に引き継ぐボタン
+                if st.button(
+                    "✍️ この記事で紹介する",
+                    key=f"select_rakuten_item_{index}",
+                    use_container_width=True
+                ):
+
+                    st.session_state["selected_rakuten_item"] = item
+
+                    st.session_state["apply_selected_item_to_topic"] = True
+
+                    st.success("商品を記事作成に設定しました！")
+
+                    st.rerun()
