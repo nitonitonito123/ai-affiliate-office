@@ -159,6 +159,115 @@ else:
 
 st.divider()
 
+# AI記事自動生成
+st.divider()
+st.subheader("✍️ ボボ：AI記事自動生成")
+
+topic = st.text_input(
+    "記事のテーマ",
+    placeholder="例：初心者向けの節約術"
+)
+
+genre = st.selectbox(
+    "記事ジャンル",
+    ["節約・お金", "商品レビュー", "暮らし・生活", "仕事・副業", "エンタメ", "その他"]
+)
+
+length = st.selectbox(
+    "記事の文字数",
+    ["1500文字", "3000文字", "4000文字", "5000文字"]
+)
+
+if st.button("🤖 ボボに記事を作成させる", use_container_width=True):
+    if not topic.strip():
+        st.warning("記事のテーマを入力してください。")
+    else:
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
+
+        if not api_key:
+            st.error("Gemini APIキーが設定されていません。")
+        else:
+            try:
+                with st.spinner("ボボが記事を執筆しています..."):
+                    client = genai.Client(api_key=api_key)
+
+                    prompt = f"""
+あなたはnote専門のプロのWebライターです。
+執筆担当AIスタッフ「ボボ」として記事を作成してください。
+
+テーマ：{topic}
+ジャンル：{genre}
+文字数の目安：{length}
+
+条件：
+・読者にとって役立つ具体的な内容にする
+・読みやすい自然な日本語にする
+・タイトルを最初に付ける
+・見出しを適切に使う
+・根拠のない数字や事実を作らない
+・最後にまとめを入れる
+・noteに投稿できるMarkdown形式にする
+・タイトルと本文を出力する
+"""
+
+                    response = client.models.generate_content(
+                        model="gemini-3.8-flash",
+                        contents=prompt
+                    )
+
+                    generated_text = response.text
+
+                    if not generated_text:
+                        st.error("記事を生成できませんでした。")
+                    else:
+                        st.session_state["generated_article"] = generated_text
+                        st.success("記事が完成しました！")
+
+            except Exception as e:
+                st.error(f"記事生成エラー：{e}")
+
+if "generated_article" in st.session_state:
+    st.markdown("### 📝 生成された記事")
+
+    edited_article = st.text_area(
+        "記事内容（編集できます）",
+        value=st.session_state["generated_article"],
+        height=500,
+        key="article_editor"
+    )
+
+    if st.button("💾 記事を下書き保存", use_container_width=True):
+        if edited_article.strip():
+            lines = edited_article.strip().splitlines()
+            article_title = topic.strip()
+
+            for line in lines:
+                clean_line = line.strip().lstrip("#").strip()
+                if clean_line:
+                    article_title = clean_line
+                    break
+
+            add_article(article_title, edited_article.strip())
+            st.success("記事を下書き保存しました！")
+            del st.session_state["generated_article"]
+            st.rerun()
+        else:
+            st.warning("記事内容を入力してください。")
+
+# 保存済み記事
+st.divider()
+st.subheader("📚 保存済み記事")
+
+saved_articles = get_articles()
+
+if saved_articles:
+    for article in saved_articles:
+        with st.expander(article["title"]):
+            st.caption(f"状態：{article['status']}")
+            st.markdown(article["body"])
+else:
+    st.info("まだ保存された記事はありません。")
+
 # 開発状況
 st.subheader("🚀 開発ロードマップ")
 
