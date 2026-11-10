@@ -12,6 +12,8 @@ from database import (
 from google import genai
 from agents.team import STAFF
 from agents.research import create_research_plan
+from agents.rakuten import search_rakuten_items
+
 
 # --------------------------------
 # ページ設定
@@ -332,7 +334,6 @@ if st.session_state.get("generated_article"):
         use_container_width=True
     ):
         title = generated_text.splitlines()[0].strip()
-
         title = title.lstrip("#").strip()
 
         if not title:
@@ -450,6 +451,11 @@ st.caption(
 
 st.divider()
 
+
+# --------------------------------
+# 商品リサーチ計画
+# --------------------------------
+
 st.header("🔎 商品リサーチ")
 st.write("クルミが商品リサーチの調査計画を作成します。")
 
@@ -461,8 +467,15 @@ with st.form("product_research_form"):
 
     research_category = st.selectbox(
         "商品ジャンル",
-        ["家電", "日用品", "食品・飲料", "美容・健康",
-         "ファッション", "趣味・アウトドア", "その他"]
+        [
+            "家電",
+            "日用品",
+            "食品・飲料",
+            "美容・健康",
+            "ファッション",
+            "趣味・アウトドア",
+            "その他"
+        ]
     )
 
     research_budget = st.number_input(
@@ -503,9 +516,166 @@ if research_submit:
 
 if st.session_state.get("research_result"):
     st.subheader("📋 クルミのリサーチ結果")
-
     st.markdown(st.session_state["research_result"])
 
     if st.button("🗑️ リサーチ結果を閉じる"):
         st.session_state.pop("research_result", None)
         st.rerun()
+
+
+st.divider()
+
+
+# --------------------------------
+# 楽天市場 商品検索
+# --------------------------------
+
+st.header("🛒 楽天市場 商品検索")
+st.caption(
+    "楽天APIを利用して商品情報を取得します。"
+    "API認証情報の設定後に検索できます。"
+)
+
+with st.form("rakuten_search_form"):
+
+    rakuten_keyword = st.text_input(
+        "商品検索キーワード",
+        placeholder="例：ワイヤレスイヤホン"
+    )
+
+    rakuten_hits = st.selectbox(
+        "取得する商品数",
+        [5, 10, 20, 30],
+        index=1
+    )
+
+    rakuten_sort = st.selectbox(
+        "検索結果の並び順",
+        [
+            "-reviewCount",
+            "-reviewAverage",
+            "+itemPrice",
+            "-itemPrice"
+        ],
+        format_func=lambda value: {
+            "-reviewCount": "口コミ件数が多い順",
+            "-reviewAverage": "評価が高い順",
+            "+itemPrice": "価格が安い順",
+            "-itemPrice": "価格が高い順"
+        }[value]
+    )
+
+    rakuten_submit = st.form_submit_button(
+        "🛒 楽天市場の商品を検索",
+        use_container_width=True
+    )
+
+
+if rakuten_submit:
+
+    if not rakuten_keyword.strip():
+        st.warning("検索キーワードを入力してください。")
+
+    else:
+        try:
+            with st.spinner("楽天市場の商品を検索しています..."):
+
+                rakuten_results = search_rakuten_items(
+                    keyword=rakuten_keyword.strip(),
+                    hits=rakuten_hits,
+                    sort=rakuten_sort
+                )
+
+            st.session_state["rakuten_results"] = rakuten_results
+            st.session_state["rakuten_search_keyword"] = (
+                rakuten_keyword.strip()
+            )
+
+            if rakuten_results:
+                st.success(
+                    f"{len(rakuten_results)}件の商品が見つかりました。"
+                )
+            else:
+                st.info("該当する商品は見つかりませんでした。")
+
+        except Exception as e:
+            st.error(f"楽天商品検索エラー：{e}")
+
+
+# --------------------------------
+# 楽天市場 商品検索結果
+# --------------------------------
+
+if "rakuten_results" in st.session_state:
+
+    st.subheader(
+        "📦 楽天市場の商品検索結果"
+    )
+
+    st.caption(
+        f"検索キーワード："
+        f"{st.session_state.get('rakuten_search_keyword', '')}"
+    )
+
+    for index, item in enumerate(
+        st.session_state["rakuten_results"]
+    ):
+
+        with st.container(border=True):
+
+            col_image, col_info = st.columns([1, 3])
+
+            with col_image:
+
+                if item.get("image"):
+                    st.image(
+                        item["image"],
+                        use_container_width=True
+                    )
+                else:
+                    st.write("画像なし")
+
+            with col_info:
+
+                st.markdown(
+                    f"**{item.get('name', '商品名未取得')}**"
+                )
+
+                price = item.get("price", 0)
+
+                if price:
+                    st.write(f"価格：{price:,}円")
+                else:
+                    st.write("価格：未取得")
+
+                st.write(
+                    f"ショップ：{item.get('shop_name', '未取得')}"
+                )
+
+                st.write(
+                    f"評価：{item.get('review_average', 0)} / 5"
+                )
+
+                st.write(
+                    f"口コミ件数：{item.get('review_count', 0)}件"
+                )
+
+                product_url = (
+                    item.get("affiliate_url")
+                    or item.get("url")
+                )
+
+                if product_url:
+                    st.link_button(
+                        "商品ページを開く",
+                        product_url,
+                        use_container_width=True
+                    )
+
+                    if item.get("affiliate_url"):
+                        st.caption("アフィリエイトURL")
+                    else:
+                        st.caption(
+                            "通常の商品URLです。"
+                            "アフィリエイトURLは未取得です。"
+                        )
