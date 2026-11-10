@@ -104,3 +104,12 @@ def delete_task(task_id):
             "DELETE FROM tasks WHERE id = ?",
             (task_id,)
         )
+def add_article(title, body):
+    with connect() as con:
+        con.execute(
+            """
+            INSERT INTO articles (title, body, status)
+            VALUES (?, ?, ?)
+            """,
+            (title, body, "下書き")
+        )
