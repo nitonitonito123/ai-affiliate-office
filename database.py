@@ -113,3 +113,13 @@ def add_article(title, body):
             """,
             (title, body, "下書き")
         )
+def update_article(article_id, title, body):
+    with connect() as con:
+        con.execute(
+            """
+            UPDATE articles
+            SET title = ?, body = ?
+            WHERE id = ?
+            """,
+            (title, body, article_id)
+        )
