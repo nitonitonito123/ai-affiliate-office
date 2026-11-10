@@ -1,8 +1,12 @@
 
 import streamlit as st
 from database import (
-    init_db, get_articles, get_tasks,
-    add_task, update_task_status, add_article
+    init_db,
+    get_articles,
+    get_tasks,
+    add_task,
+    update_task_status,
+    add_article
 )
 from google import genai
 from agents.team import STAFF
@@ -160,7 +164,6 @@ else:
 st.divider()
 
 # AI記事自動生成
-st.divider()
 st.subheader("✍️ ボボ：AI記事自動生成")
 
 topic = st.text_input(
@@ -170,7 +173,14 @@ topic = st.text_input(
 
 genre = st.selectbox(
     "記事ジャンル",
-    ["節約・お金", "商品レビュー", "暮らし・生活", "仕事・副業", "エンタメ", "その他"]
+    [
+        "節約・お金",
+        "商品レビュー",
+        "暮らし・生活",
+        "仕事・副業",
+        "エンタメ",
+        "その他"
+    ]
 )
 
 length = st.selectbox(
@@ -178,14 +188,19 @@ length = st.selectbox(
     ["1500文字", "3000文字", "4000文字", "5000文字"]
 )
 
-if st.button("🤖 ボボに記事を作成させる", use_container_width=True):
+if st.button(
+    "🤖 ボボに記事を作成させる",
+    use_container_width=True
+):
     if not topic.strip():
         st.warning("記事のテーマを入力してください。")
+
     else:
         api_key = st.secrets.get("GEMINI_API_KEY", "")
 
         if not api_key:
             st.error("Gemini APIキーが設定されていません。")
+
         else:
             try:
                 with st.spinner("ボボが記事を執筆しています..."):
@@ -208,34 +223,42 @@ if st.button("🤖 ボボに記事を作成させる", use_container_width=True)
 ・最後にまとめを入れる
 ・noteに投稿できるMarkdown形式にする
 ・タイトルと本文を出力する
+・指定された文字数を目安にする
 """
 
                     try:
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-        config=genai.types.GenerateContentConfig(
-            thinking_config=genai.types.ThinkingConfig(
-                thinking_level="LOW"
-            )
-        )
-    )
+                        response = client.models.generate_content(
+                            model="gemini-3.8-flash",
+                            contents=prompt,
+                            config=genai.types.GenerateContentConfig(
+                                thinking_config=genai.types.ThinkingConfig(
+                                    thinking_level="LOW"
+                                )
+                            )
+                        )
 
-except Exception as e:
-    if "503" in str(e) or "UNAVAILABLE" in str(e):
-        st.warning("通常モデルが混雑中です。予備モデルに切り替えます...")
+                    except Exception as e:
+                        if (
+                            "503" in str(e)
+                            or "UNAVAILABLE" in str(e)
+                        ):
+                            st.warning(
+                                "通常モデルが混雑中です。"
+                                "予備モデルに切り替えます..."
+                            )
 
-        response = client.models.generate_content(
-            model="gemini-3.5-flash-lite",
-            contents=prompt
-        )
-    else:
-        raise
+                            response = client.models.generate_content(
+                                model="gemini-3.5-flash-lite",
+                                contents=prompt
+                            )
+                        else:
+                            raise
 
                     generated_text = response.text
 
                     if not generated_text:
                         st.error("記事を生成できませんでした。")
+
                     else:
                         st.session_state["generated_article"] = generated_text
                         st.success("記事が完成しました！")
@@ -243,6 +266,7 @@ except Exception as e:
             except Exception as e:
                 st.error(f"記事生成エラー：{e}")
 
+# 生成された記事
 if "generated_article" in st.session_state:
     st.markdown("### 📝 生成された記事")
 
@@ -253,26 +277,36 @@ if "generated_article" in st.session_state:
         key="article_editor"
     )
 
-    if st.button("💾 記事を下書き保存", use_container_width=True):
+    if st.button(
+        "💾 記事を下書き保存",
+        use_container_width=True
+    ):
         if edited_article.strip():
             lines = edited_article.strip().splitlines()
             article_title = topic.strip()
 
             for line in lines:
                 clean_line = line.strip().lstrip("#").strip()
+
                 if clean_line:
                     article_title = clean_line
                     break
 
-            add_article(article_title, edited_article.strip())
+            add_article(
+                article_title,
+                edited_article.strip()
+            )
+
             st.success("記事を下書き保存しました！")
             del st.session_state["generated_article"]
             st.rerun()
+
         else:
             st.warning("記事内容を入力してください。")
 
-# 保存済み記事
 st.divider()
+
+# 保存済み記事
 st.subheader("📚 保存済み記事")
 
 saved_articles = get_articles()
@@ -282,10 +316,12 @@ if saved_articles:
         with st.expander(article["title"]):
             st.caption(f"状態：{article['status']}")
             st.markdown(article["body"])
+
 else:
     st.info("まだ保存された記事はありません。")
 
 # 開発状況
+st.divider()
 st.subheader("🚀 開発ロードマップ")
 
 st.markdown("""
