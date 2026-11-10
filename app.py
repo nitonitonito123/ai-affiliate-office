@@ -6,7 +6,8 @@ from database import (
     get_tasks,
     add_task,
     update_task_status,
-    add_article
+    add_article,
+    update_article
 )
 from google import genai
 from agents.team import STAFF
@@ -312,6 +313,50 @@ st.subheader("📚 保存済み記事")
 saved_articles = get_articles()
 
 if saved_articles:
+
+    article_options = {
+        f"{article['title']}（ID：{article['id']}）": article
+        for article in saved_articles
+    }
+
+    selected_title = st.selectbox(
+        "編集する記事を選択",
+        list(article_options.keys())
+    )
+
+    selected_article = article_options[selected_title]
+
+    st.markdown("### ✏️ 記事の編集")
+
+    edited_title = st.text_input(
+        "記事タイトル",
+        value=selected_article["title"],
+        key=f"title_{selected_article['id']}"
+    )
+
+    edited_body = st.text_area(
+        "記事本文",
+        value=selected_article["body"],
+        height=400,
+        key=f"body_{selected_article['id']}"
+    )
+
+    if st.button("💾 記事を更新", use_container_width=True):
+        if not edited_title.strip() or not edited_body.strip():
+            st.warning("タイトルと本文を入力してください。")
+        else:
+            update_article(
+                selected_article["id"],
+                edited_title.strip(),
+                edited_body.strip()
+            )
+            st.success("記事を更新しました！")
+            st.rerun()
+
+    st.divider()
+
+    st.markdown("### 📖 保存済み記事一覧")
+
     for article in saved_articles:
         with st.expander(article["title"]):
             st.caption(f"状態：{article['status']}")
