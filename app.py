@@ -211,9 +211,14 @@ if st.button("🤖 ボボに記事を作成させる", use_container_width=True)
 """
 
                     response = client.models.generate_content(
-                        model="gemini-3.8-flash",
-                        contents=prompt
-                    )
+    model="gemini-3.8-flash",
+    contents=prompt,
+    config=genai.types.GenerateContentConfig(
+        thinking_config=genai.types.ThinkingConfig(
+            thinking_level="LOW"
+        )
+    )
+)
 
                     generated_text = response.text
 
