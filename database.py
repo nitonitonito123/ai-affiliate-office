@@ -40,20 +40,32 @@ def get_articles():
 
 def add_task(title, staff="", details="", priority="中"):
     client = get_client()
-    client.table("tasks").insert({
-        "title": title,
-        "staff": staff,
-        "details": details,
-        "priority": priority,
-        "status": "未着手"
-    }).execute()
+    result = (
+        client.table("tasks")
+        .insert({
+            "title": title,
+            "staff": staff,
+            "details": details,
+            "priority": priority,
+            "status": "未着手"
+        })
+        .select("*")
+        .execute()
+    )
+    if not result.data:
+        raise RuntimeError("タスクの保存結果を確認できませんでした。")
+    return result.data[0]
 
 
 def update_task_status(task_id, status):
     client = get_client()
-    client.table("tasks").update({
-        "status": status
-    }).eq("id", task_id).execute()
+    result = (
+        client.table("tasks")
+        .update({"status": status})
+        .eq("id", task_id)
+        .execute()
+    )
+    return result.data
 
 
 def delete_task(task_id):
@@ -63,16 +75,33 @@ def delete_task(task_id):
 
 def add_article(title, body):
     client = get_client()
-    client.table("articles").insert({
-        "title": title,
-        "body": body,
-        "status": "下書き"
-    }).execute()
+    result = (
+        client.table("articles")
+        .insert({
+            "title": title,
+            "body": body,
+            "status": "下書き"
+        })
+        .select("*")
+        .execute()
+    )
+
+    if not result.data:
+        raise RuntimeError("記事の保存結果を確認できませんでした。")
+
+    return result.data[0]
 
 
 def update_article(article_id, title, body):
     client = get_client()
-    client.table("articles").update({
-        "title": title,
-        "body": body
-    }).eq("id", article_id).execute()
+    result = (
+        client.table("articles")
+        .update({
+            "title": title,
+            "body": body
+        })
+        .eq("id", article_id)
+        .execute()
+    )
+
+    return result.data
