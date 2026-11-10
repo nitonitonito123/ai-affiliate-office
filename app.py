@@ -11,7 +11,7 @@ from database import (
 )
 from google import genai
 from agents.team import STAFF
-
+from agents.research import create_research_plan
 
 # --------------------------------
 # ページ設定
@@ -447,11 +447,11 @@ st.caption(
     "外部サービスとの自動連携は今後の開発項目です。"
 )
 
+
 st.divider()
 
 st.header("🔎 商品リサーチ")
-
-st.write("クルミに商品リサーチを依頼できます。")
+st.write("クルミが商品リサーチの調査計画を作成します。")
 
 with st.form("product_research_form"):
     research_keyword = st.text_input(
@@ -478,27 +478,34 @@ with st.form("product_research_form"):
     )
 
     research_submit = st.form_submit_button(
-        "クルミにリサーチを依頼する",
+        "🔍 クルミに調査させる",
         use_container_width=True
     )
 
-    if research_submit:
-        if not research_keyword.strip():
-            st.warning("検索キーワードを入力してください。")
-        else:
-            details = (
-                f"検索キーワード：{research_keyword}\n"
-                f"商品ジャンル：{research_category}\n"
-                f"想定予算：{research_budget}円\n"
-                f"条件：{research_target}"
-            )
+if research_submit:
+    if not research_keyword.strip():
+        st.warning("検索キーワードを入力してください。")
+    else:
+        try:
+            with st.spinner("クルミが調査計画を作成しています..."):
+                research_result = create_research_plan(
+                    research_keyword.strip(),
+                    research_category,
+                    research_budget,
+                    research_target.strip()
+                )
 
-            add_task(
-                title=f"商品リサーチ：{research_keyword}",
-                staff="クルミ",
-                details=details,
-                priority="高"
-            )
+            st.session_state["research_result"] = research_result
+            st.success("クルミの調査計画が完成しました！")
 
-            st.success("クルミへのリサーチ依頼を保存しました！")
-            st.rerun()
+        except Exception as e:
+            st.error(f"リサーチエラー：{e}")
+
+if st.session_state.get("research_result"):
+    st.subheader("📋 クルミのリサーチ結果")
+
+    st.markdown(st.session_state["research_result"])
+
+    if st.button("🗑️ リサーチ結果を閉じる"):
+        st.session_state.pop("research_result", None)
+        st.rerun()
