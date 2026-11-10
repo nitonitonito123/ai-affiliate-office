@@ -1,122 +1,78 @@
 
-import sqlite3
-import os
-
-DB_NAME = "office.db"
+import streamlit as st
+from supabase import create_client
 
 
-def connect():
-    return sqlite3.connect(DB_NAME)
+@st.cache_resource
+def get_client():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_SECRET_KEY"]
+    return create_client(url, key)
 
 
 def init_db():
-    with connect() as con:
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                staff TEXT,
-                details TEXT,
-                priority TEXT DEFAULT '中',
-                status TEXT DEFAULT '未着手',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-        # 既存のtasksテーブルに不足している列を追加
-        columns = [
-            row[1] for row in
-            con.execute("PRAGMA table_info(tasks)").fetchall()
-        ]
-
-        if "details" not in columns:
-            con.execute(
-                "ALTER TABLE tasks ADD COLUMN details TEXT"
-            )
-
-        if "priority" not in columns:
-            con.execute(
-                "ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT '中'"
-            )
-
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS articles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                body TEXT NOT NULL,
-                status TEXT DEFAULT '下書き',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+    client = get_client()
+    client.table("tasks").select("id").limit(1).execute()
+    client.table("articles").select("id").limit(1).execute()
 
 
 def get_tasks():
-    with connect() as con:
-        con.row_factory = sqlite3.Row
-        rows = con.execute(
-            "SELECT * FROM tasks ORDER BY id DESC"
-        ).fetchall()
-        return [dict(row) for row in rows]
+    client = get_client()
+    result = (
+        client.table("tasks")
+        .select("*")
+        .order("id", desc=True)
+        .execute()
+    )
+    return result.data or []
 
 
 def get_articles():
-    with connect() as con:
-        con.row_factory = sqlite3.Row
-        rows = con.execute(
-            "SELECT * FROM articles ORDER BY id DESC"
-        ).fetchall()
-        return [dict(row) for row in rows]
+    client = get_client()
+    result = (
+        client.table("articles")
+        .select("*")
+        .order("id", desc=True)
+        .execute()
+    )
+    return result.data or []
 
 
-def add_task(title, staff, details="", priority="中"):
-    with connect() as con:
-        con.execute(
-            """
-            INSERT INTO tasks (title, staff, details, priority)
-            VALUES (?, ?, ?, ?)
-            """,
-            (title, staff, details, priority)
-        )
+def add_task(title, staff="", details="", priority="中"):
+    client = get_client()
+    client.table("tasks").insert({
+        "title": title,
+        "staff": staff,
+        "details": details,
+        "priority": priority,
+        "status": "未着手"
+    }).execute()
 
 
 def update_task_status(task_id, status):
-    with connect() as con:
-        con.execute(
-            """
-            UPDATE tasks
-            SET status = ?
-            WHERE id = ?
-            """,
-            (status, task_id)
-        )
+    client = get_client()
+    client.table("tasks").update({
+        "status": status
+    }).eq("id", task_id).execute()
 
 
 def delete_task(task_id):
-    with connect() as con:
-        con.execute(
-            "DELETE FROM tasks WHERE id = ?",
-            (task_id,)
-        )
+    client = get_client()
+    client.table("tasks").delete().eq("id", task_id).execute()
 
 
 def add_article(title, body):
-    with connect() as con:
-        con.execute(
-            """
-            INSERT INTO articles (title, body, status)
-            VALUES (?, ?, ?)
-            """,
-            (title, body, "下書き")
-        )
+    client = get_client()
+    client.table("articles").insert({
+        "title": title,
+        "body": body,
+        "status": "下書き"
+    }).execute()
 
 
 def update_article(article_id, title, body):
-    with connect() as con:
-        con.execute(
-            """
-            UPDATE articles
-            SET title = ?, body = ?
-            WHERE id = ?
-            """,
-            (title, body, article_id)
-        )
+    client = get_client()
+    client.table("articles").update({
+        "title": title,
+        "body": body
+    }).eq("id", article_id).execute()
