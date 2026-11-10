@@ -446,3 +446,59 @@ st.caption(
     "現在は記事生成・保存・編集とタスク管理が利用できます。"
     "外部サービスとの自動連携は今後の開発項目です。"
 )
+
+st.divider()
+
+st.header("🔎 商品リサーチ")
+
+st.write("クルミに商品リサーチを依頼できます。")
+
+with st.form("product_research_form"):
+    research_keyword = st.text_input(
+        "検索キーワード",
+        placeholder="例：ワイヤレスイヤホン"
+    )
+
+    research_category = st.selectbox(
+        "商品ジャンル",
+        ["家電", "日用品", "食品・飲料", "美容・健康",
+         "ファッション", "趣味・アウトドア", "その他"]
+    )
+
+    research_budget = st.number_input(
+        "想定予算（円）",
+        min_value=0,
+        value=5000,
+        step=500
+    )
+
+    research_target = st.text_area(
+        "リサーチの条件",
+        placeholder="例：口コミが多く、コストパフォーマンスが良い商品"
+    )
+
+    research_submit = st.form_submit_button(
+        "クルミにリサーチを依頼する",
+        use_container_width=True
+    )
+
+    if research_submit:
+        if not research_keyword.strip():
+            st.warning("検索キーワードを入力してください。")
+        else:
+            details = (
+                f"検索キーワード：{research_keyword}\n"
+                f"商品ジャンル：{research_category}\n"
+                f"想定予算：{research_budget}円\n"
+                f"条件：{research_target}"
+            )
+
+            add_task(
+                title=f"商品リサーチ：{research_keyword}",
+                staff="クルミ",
+                details=details,
+                priority="高"
+            )
+
+            st.success("クルミへのリサーチ依頼を保存しました！")
+            st.rerun()
