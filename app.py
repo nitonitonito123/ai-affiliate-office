@@ -216,6 +216,33 @@ st.divider()
 st.header("✍️ AI記事生成")
 st.caption("ボボが記事の下書きを作成します。")
 
+
+# --------------------------------
+# 記事の種類
+# --------------------------------
+
+article_type = st.radio(
+    "記事の種類",
+    ["一般記事", "アフィリエイト記事"],
+    horizontal=True,
+    key="article_type"
+)
+
+if article_type == "一般記事":
+
+    st.info(
+        "📘 一般記事：節約・暮らし・知識など、"
+        "読者に役立つ情報を中心に作成します。"
+    )
+
+else:
+
+    st.info(
+        "🛒 アフィリエイト記事：商品情報をもとに、"
+        "特徴・メリット・注意点を紹介する記事を作成します。"
+    )
+
+
 topic = st.text_input(
     "記事のテーマ",
     placeholder="例：初心者におすすめの節約方法",
@@ -232,7 +259,7 @@ selected_item = st.session_state.get("selected_rakuten_item")
 if selected_item:
 
     st.success(
-        f"🛒 紹介予定商品：{selected_item.get('name', '商品名未取得')}"
+        f"🛒 選択中の商品：{selected_item.get('name', '商品名未取得')}"
     )
 
     if st.button("選択した商品を解除する"):
@@ -367,6 +394,16 @@ if st.button(
 
         st.warning("記事のテーマを入力してください。")
 
+    elif (
+        article_type == "アフィリエイト記事"
+        and not st.session_state.get("selected_rakuten_item")
+    ):
+
+        st.warning(
+            "アフィリエイト記事を作成するには、"
+            "先に紹介する商品を選択してください。"
+        )
+
     else:
 
         api_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -389,7 +426,7 @@ if st.button(
                         "selected_rakuten_item"
                     )
 
-                    if selected_item:
+                    if article_type == "アフィリエイト記事":
 
                         product_details = f"""
 【紹介する商品情報】
@@ -398,32 +435,89 @@ if st.button(
 {selected_item.get("name", "未取得")}
 
 価格：
-{selected_item.get("price", "未取得")}円
+{selected_item.get("price", "未取得")}
 
 ショップ：
 {selected_item.get("shop_name", "未取得")}
 
 評価：
-{selected_item.get("review_average", "未取得")} / 5
+{selected_item.get("review_average", "未取得")}
 
 口コミ件数：
-{selected_item.get("review_count", "未取得")}件
+{selected_item.get("review_count", "未取得")}
 
 商品URL：
-{selected_item.get("affiliate_url") or selected_item.get("url", "未取得")}
+{selected_item.get("affiliate_url") or selected_item.get("url") or "未設定"}
+"""
+
+                        article_rules = """
+【アフィリエイト記事の執筆条件】
+
+・商品を購入検討している読者に役立つ内容にする。
+・商品の特徴を分かりやすく説明する。
+・メリットだけでなく注意点やデメリットも書く。
+・どのような人に向いているか説明する。
+・購入前に確認すべきポイントを伝える。
+・最後に自然な商品ページへの案内を入れる。
+・広告・アフィリエイトリンクを使用する場合は、その旨が分かる表現を入れる。
+・実際に使用していない商品について体験談を作らない。
+・提供されていない機能や性能を捏造しない。
+・未確認の価格、口コミ、評価を断定しない。
+・商品URLは提供されたものだけを使用する。
+"""
+
+                        article_structure = """
+【記事構成】
+1. 読者の悩みや疑問
+2. 商品の概要
+3. 商品の特徴
+4. メリット
+5. 注意点・デメリット
+6. 向いている人
+7. 購入前の確認ポイント
+8. まとめ・商品ページへの案内
 """
 
                     else:
 
                         product_details = """
-【紹介する商品情報】
-商品は指定されていません。
-記事テーマに沿って一般的な記事を作成してください。
+【商品情報】
+この記事は一般記事です。
+商品情報や商品URLを使用する必要はありません。
+選択中の商品があっても、商品紹介は行わないでください。
+"""
+
+                        article_rules = """
+【一般記事の執筆条件】
+
+・読者の悩みや疑問を解決する内容にする。
+・正確で実用的な情報を提供する。
+・具体例や実践方法を入れる。
+・初心者にも分かりやすく説明する。
+・メリットだけでなく注意点も説明する。
+・根拠のない断定や誇張表現を避ける。
+・未確認情報を事実として書かない。
+・商品紹介や購入への誘導を無理に入れない。
+・読者が記事を読んだ後に行動できる内容にする。
+"""
+
+                        article_structure = """
+【記事構成】
+1. 読者の悩みや疑問
+2. テーマの概要
+3. 知っておきたい重要なポイント
+4. 具体例
+5. 実践方法
+6. 注意点
+7. まとめ
 """
 
                     prompt = f"""
 あなたはプロのWebライター「ボボ」です。
 noteに掲載する完成度の高い記事を作成してください。
+
+【記事の種類】
+{article_type}
 
 【テーマ】
 {topic}
@@ -436,31 +530,19 @@ noteに掲載する完成度の高い記事を作成してください。
 
 {product_details}
 
-【執筆条件】
-・自然で読みやすい日本語
-・タイトルと見出しを付ける
-・読者の悩みや疑問から始める
-・具体例を入れる
-・メリットと注意点の両方を書く
-・最後にまとめを入れる
-・そのままnoteに掲載できる形式にする
-・誇張表現や過剰な購入誘導を避ける
+{article_rules}
 
-【商品情報のルール】
-・提供された商品情報を優先する
-・未確認の性能、機能、価格、口コミを捏造しない
-・実際に使用したような体験談を作らない
-・不明な情報は未確認とする
-・商品URLは提供されたものをそのまま使う
+【共通執筆条件】
+・自然で読みやすい日本語にする。
+・タイトルと見出しを付ける。
+・読者の悩みや疑問から始める。
+・具体例を入れる。
+・最後にまとめを入れる。
+・そのままnoteに掲載できる形式にする。
+・内容の水増しをしない。
+・事実と意見を区別する。
 
-【記事構成】
-1. 読者の悩みや疑問
-2. 商品・テーマの概要
-3. 特徴や重要なポイント
-4. メリット
-5. 注意点・デメリット
-6. 選び方や実践方法
-7. まとめ
+{article_structure}
 
 完成した記事だけを出力してください。
 """
@@ -517,6 +599,11 @@ noteに掲載する完成度の高い記事を作成してください。
                     else:
 
                         st.session_state["generated_article"] = generated_text
+                        st.session_state["generated_article_type"] = article_type
+                        st.session_state["generated_selected_item"] = (
+                            selected_item if article_type == "アフィリエイト記事" else None
+                        )
+
                         st.session_state["article_revision"] = 0
                         st.session_state["generation_time"] = elapsed
                         st.session_state["generation_model"] = used_model
@@ -524,6 +611,8 @@ noteに掲載する完成度の高い記事を作成してください。
                         st.session_state.pop("quality_result", None)
                         st.session_state.pop("original_generated_article", None)
                         st.session_state.pop("previous_quality_result", None)
+                        st.session_state.pop("quality_time", None)
+                        st.session_state.pop("revision_time", None)
 
                         st.success(
                             f"記事が完成しました！ 処理時間：{elapsed:.1f}秒"
@@ -556,9 +645,16 @@ if st.session_state.get("generation_time") is not None:
 
 st.divider()
 st.subheader("📋 グミの品質チェック")
-st.caption("ボボが生成した記事をグミが公開前に確認します。")
+st.caption("記事の種類に合わせて公開前の品質を確認します。")
 
 if st.session_state.get("generated_article"):
+
+    generated_article_type = st.session_state.get(
+        "generated_article_type",
+        "一般記事"
+    )
+
+    st.caption(f"チェック対象：{generated_article_type}")
 
     if st.button(
         "🔍 グミに品質チェックさせる",
@@ -572,7 +668,7 @@ if st.session_state.get("generated_article"):
             with st.spinner("グミが記事を確認しています..."):
 
                 selected_item = st.session_state.get(
-                    "selected_rakuten_item"
+                    "generated_selected_item"
                 )
 
                 article_text = st.session_state["generated_article"]
@@ -591,7 +687,8 @@ if st.session_state.get("generated_article"):
                 quality_result = check_article_quality(
                     title=article_title,
                     body=article_text,
-                    selected_item=selected_item
+                    selected_item=selected_item,
+                    article_type=generated_article_type
                 )
 
                 elapsed = time.perf_counter() - start_time
@@ -634,7 +731,7 @@ if st.session_state.get("quality_result"):
     st.subheader("🛠️ ボボによる自動修正")
 
     st.caption(
-        "グミの指摘をもとにボボが記事を修正します。"
+        "グミの指摘を反映し、記事の種類に合わせて修正します。"
     )
 
     if st.button(
@@ -653,7 +750,12 @@ if st.session_state.get("quality_result"):
                 quality_result = st.session_state["quality_result"]
 
                 selected_item = st.session_state.get(
-                    "selected_rakuten_item"
+                    "generated_selected_item"
+                )
+
+                generated_article_type = st.session_state.get(
+                    "generated_article_type",
+                    "一般記事"
                 )
 
                 revised_article = revise_article(
@@ -667,7 +769,8 @@ if st.session_state.get("quality_result"):
                     ),
                     body=current_article,
                     quality_result=quality_result,
-                    selected_item=selected_item
+                    selected_item=selected_item,
+                    article_type=generated_article_type
                 )
 
                 elapsed = time.perf_counter() - start_time
@@ -695,6 +798,7 @@ if st.session_state.get("quality_result"):
                     st.session_state["revision_time"] = elapsed
 
                     st.session_state.pop("quality_result", None)
+                    st.session_state.pop("quality_time", None)
 
                     st.success(
                         f"ボボが記事を修正しました！ 処理時間：{elapsed:.1f}秒"
@@ -758,6 +862,13 @@ if st.session_state.get("generated_article"):
 
     revision = st.session_state.get("article_revision", 0)
 
+    generated_article_type = st.session_state.get(
+        "generated_article_type",
+        "一般記事"
+    )
+
+    st.caption(f"記事の種類：{generated_article_type}")
+
     st.caption(
         f"記事の修正回数：{revision}回"
     )
@@ -791,6 +902,8 @@ if st.session_state.get("generated_article"):
         )
 
         st.session_state.pop("generated_article", None)
+        st.session_state.pop("generated_article_type", None)
+        st.session_state.pop("generated_selected_item", None)
         st.session_state.pop("quality_result", None)
         st.session_state.pop("original_generated_article", None)
         st.session_state.pop("previous_quality_result", None)
