@@ -15,6 +15,8 @@ from agents.research import create_research_plan
 from agents.rakuten import search_rakuten_items
 from agents.quality import check_article_quality
 from agents.quality import revise_article
+
+
 # --------------------------------
 # ページ設定
 # --------------------------------
@@ -29,6 +31,9 @@ init_db()
 
 if "selected_rakuten_item" not in st.session_state:
     st.session_state["selected_rakuten_item"] = None
+
+if "article_revision" not in st.session_state:
+    st.session_state["article_revision"] = 0
 
 if st.session_state.pop("apply_selected_item_to_topic", False):
     selected_item = st.session_state.get("selected_rakuten_item")
@@ -510,11 +515,16 @@ noteに投稿する記事を作成してください。
                     else:
 
                         st.session_state["generated_article"] = generated_text
+                        st.session_state["article_revision"] = 0
+                        st.session_state.pop("quality_result", None)
+                        st.session_state.pop("original_generated_article", None)
+
                         st.success("記事が完成しました！")
 
             except Exception as e:
 
                 st.error(f"記事生成エラー：{e}")
+
 
 # --------------------------------
 # グミの品質チェック
@@ -538,9 +548,22 @@ if st.session_state.get("generated_article"):
                     "selected_rakuten_item"
                 )
 
+                article_text = st.session_state["generated_article"]
+
+                article_lines = article_text.splitlines()
+
+                article_title = next(
+                    (
+                        line.lstrip("# ").strip()
+                        for line in article_lines
+                        if line.strip()
+                    ),
+                    "無題の記事"
+                )
+
                 quality_result = check_article_quality(
-                    title=st.session_state["generated_article"].splitlines()[0].lstrip("# ").strip(),
-                    body=st.session_state["generated_article"],
+                    title=article_title,
+                    body=article_text,
                     selected_item=selected_item
                 )
 
@@ -549,14 +572,117 @@ if st.session_state.get("generated_article"):
         except Exception as e:
             st.error(f"品質チェックエラー：{e}")
 
+
+# --------------------------------
+# グミのチェック結果表示
+# --------------------------------
+
 if st.session_state.get("quality_result"):
 
     st.markdown("### 📝 グミのチェック結果")
+
     st.markdown(st.session_state["quality_result"])
 
-    if st.button("品質チェック結果を閉じる"):
-        st.session_state.pop("quality_result", None)
-        st.rerun()
+    st.divider()
+
+    st.subheader("🛠️ ボボによる自動修正")
+
+    st.caption(
+        "グミの指摘をもとにボボが記事を修正します。"
+        "修正前の記事も比較用に保存されます。"
+    )
+
+    if st.button(
+        "✍️ ボボに記事を自動修正させる",
+        use_container_width=True
+    ):
+
+        try:
+
+            with st.spinner("ボボがグミの指摘を反映しています..."):
+
+                current_article = st.session_state["generated_article"]
+
+                quality_result = st.session_state["quality_result"]
+
+                selected_item = st.session_state.get(
+                    "selected_rakuten_item"
+                )
+
+                revised_article = revise_article(
+                    title=next(
+                        (
+                            line.lstrip("# ").strip()
+                            for line in current_article.splitlines()
+                            if line.strip()
+                        ),
+                        "無題の記事"
+                    ),
+                    body=current_article,
+                    quality_result=quality_result,
+                    selected_item=selected_item
+                )
+
+                if not revised_article or not revised_article.strip():
+
+                    st.error("修正後の記事が空でした。")
+
+                else:
+
+                    # 修正前の記事を保存
+                    st.session_state["original_generated_article"] = (
+                        current_article
+                    )
+
+                    # 修正前の品質チェック結果も保存
+                    st.session_state["previous_quality_result"] = (
+                        quality_result
+                    )
+
+                    # 修正後の記事に置き換える
+                    st.session_state["generated_article"] = (
+                        revised_article.strip()
+                    )
+
+                    # 表示用テキストエリアのキーを更新
+                    st.session_state["article_revision"] += 1
+
+                    # 修正後の記事は再チェックが必要
+                    st.session_state.pop("quality_result", None)
+
+                    st.success(
+                        "ボボが記事を修正しました！"
+                        "修正後の記事をグミに再チェックさせてください。"
+                    )
+
+        except Exception as e:
+
+            st.error(f"記事の自動修正エラー：{e}")
+
+
+# --------------------------------
+# 修正前の記事との比較
+# --------------------------------
+
+if st.session_state.get("original_generated_article"):
+
+    with st.expander("📄 修正前の記事を確認する"):
+
+        st.text_area(
+            "修正前の記事",
+            value=st.session_state["original_generated_article"],
+            height=300,
+            disabled=True,
+            key="original_article_preview"
+        )
+
+    if st.session_state.get("previous_quality_result"):
+
+        with st.expander("📋 修正前の品質チェック結果"):
+
+            st.markdown(
+                st.session_state["previous_quality_result"]
+            )
 
 
 # --------------------------------
@@ -569,11 +695,17 @@ if st.session_state.get("generated_article"):
 
     generated_text = st.session_state["generated_article"]
 
+    revision = st.session_state.get("article_revision", 0)
+
+    st.caption(
+        f"記事の修正回数：{revision}回"
+    )
+
     st.text_area(
         "記事内容",
         value=generated_text,
         height=400,
-        key="generated_article_preview"
+        key=f"generated_article_preview_{revision}"
     )
 
     if st.button(
@@ -581,11 +713,16 @@ if st.session_state.get("generated_article"):
         use_container_width=True
     ):
 
-        title = generated_text.splitlines()[0].strip()
-        title = title.lstrip("#").strip()
+        article_lines = generated_text.splitlines()
 
-        if not title:
-            title = "無題の記事"
+        title = next(
+            (
+                line.lstrip("# ").strip()
+                for line in article_lines
+                if line.strip()
+            ),
+            "無題の記事"
+        )
 
         add_article(
             title,
@@ -593,6 +730,10 @@ if st.session_state.get("generated_article"):
         )
 
         st.session_state.pop("generated_article", None)
+        st.session_state.pop("quality_result", None)
+        st.session_state.pop("original_generated_article", None)
+        st.session_state.pop("previous_quality_result", None)
+        st.session_state["article_revision"] = 0
 
         st.success("記事を保存しました！")
         st.rerun()
@@ -694,7 +835,8 @@ st.markdown("""
 st.caption(
     "現在は記事生成・保存・編集、タスク管理、"
     "商品リサーチ計画、楽天商品検索、"
-    "手動商品登録機能を搭載しています。"
+    "手動商品登録、記事品質チェック、"
+    "AIによる記事自動修正機能を搭載しています。"
 )
 
 
