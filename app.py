@@ -13,7 +13,7 @@ from google import genai
 from agents.team import STAFF
 from agents.research import create_research_plan
 from agents.rakuten import search_rakuten_items
-
+from agents.quality import check_article_quality
 
 # --------------------------------
 # ページ設定
