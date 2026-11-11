@@ -516,6 +516,48 @@ noteに投稿する記事を作成してください。
 
                 st.error(f"記事生成エラー：{e}")
 
+# --------------------------------
+# グミの品質チェック
+# --------------------------------
+
+st.divider()
+st.subheader("📋 グミの品質チェック")
+st.caption("ボボが生成した記事をグミが公開前に確認します。")
+
+if st.session_state.get("generated_article"):
+
+    if st.button(
+        "🔍 グミに品質チェックさせる",
+        use_container_width=True
+    ):
+
+        try:
+            with st.spinner("グミが記事を確認しています..."):
+
+                selected_item = st.session_state.get(
+                    "selected_rakuten_item"
+                )
+
+                quality_result = check_article_quality(
+                    title=st.session_state["generated_article"].splitlines()[0].lstrip("# ").strip(),
+                    body=st.session_state["generated_article"],
+                    selected_item=selected_item
+                )
+
+                st.session_state["quality_result"] = quality_result
+
+        except Exception as e:
+            st.error(f"品質チェックエラー：{e}")
+
+if st.session_state.get("quality_result"):
+
+    st.markdown("### 📝 グミのチェック結果")
+    st.markdown(st.session_state["quality_result"])
+
+    if st.button("品質チェック結果を閉じる"):
+        st.session_state.pop("quality_result", None)
+        st.rerun()
+
 
 # --------------------------------
 # 生成記事の確認・保存
