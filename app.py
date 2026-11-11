@@ -1,4 +1,5 @@
 
+import time
 import streamlit as st
 from database import (
     init_db,
@@ -378,6 +379,8 @@ if st.button(
 
             try:
 
+                start_time = time.perf_counter()
+
                 with st.spinner("ボボが記事を執筆しています..."):
 
                     client = genai.Client(api_key=api_key)
@@ -419,10 +422,8 @@ if st.button(
 """
 
                     prompt = f"""
-あなたはプロのWebライターであり、
-AI Affiliate Officeの執筆担当「ボボ」です。
-
-noteに投稿する記事を作成してください。
+あなたはプロのWebライター「ボボ」です。
+noteに掲載する完成度の高い記事を作成してください。
 
 【テーマ】
 {topic}
@@ -435,54 +436,48 @@ noteに投稿する記事を作成してください。
 
 {product_details}
 
-【執筆ルール】
-
-・読者にとって役立つ内容にする
-・自然で読みやすい日本語を使う
-・タイトルを最初に付ける
-・見出しを適切に使用する
+【執筆条件】
+・自然で読みやすい日本語
+・タイトルと見出しを付ける
+・読者の悩みや疑問から始める
 ・具体例を入れる
+・メリットと注意点の両方を書く
 ・最後にまとめを入れる
-・そのままnoteの下書きに使える形式にする
-・購入を検討している読者の疑問に答える
-・メリットだけでなく注意点も説明する
-・過度な購入誘導や誇張表現を避ける
+・そのままnoteに掲載できる形式にする
+・誇張表現や過剰な購入誘導を避ける
 
-【商品情報に関する重要ルール】
-
-・提供された商品情報を優先して使用する
-・確認できていない性能、機能、効果を捏造しない
-・実際に確認していない口コミ内容を作らない
-・価格、評価、口コミ件数を変更しない
-・不明な情報は「未確認」と記載する
-・商品URLは提供されたものをそのまま記載する
-・商品を実際に使用したかのような体験談を書かない
+【商品情報のルール】
+・提供された商品情報を優先する
+・未確認の性能、機能、価格、口コミを捏造しない
+・実際に使用したような体験談を作らない
+・不明な情報は未確認とする
+・商品URLは提供されたものをそのまま使う
 
 【記事構成】
-
 1. 読者の悩みや疑問
-2. 商品の概要
-3. 商品の特徴
+2. 商品・テーマの概要
+3. 特徴や重要なポイント
 4. メリット
 5. 注意点・デメリット
-6. 商品選びのポイント
+6. 選び方や実践方法
 7. まとめ
 
-タイトルと本文を分けず、
-完成した記事として出力してください。
+完成した記事だけを出力してください。
 """
+
+                    generation_config = genai.types.GenerateContentConfig(
+                        max_output_tokens=6000
+                    )
 
                     try:
 
                         response = client.models.generate_content(
-                            model="gemini-3.8-flash",
+                            model="gemini-3.5-flash-lite",
                             contents=prompt,
-                            config=genai.types.GenerateContentConfig(
-                                thinking_config=genai.types.ThinkingConfig(
-                                    thinking_level="LOW"
-                                )
-                            )
+                            config=generation_config
                         )
+
+                        used_model = "gemini-3.5-flash-lite"
 
                     except Exception as e:
 
@@ -491,22 +486,29 @@ noteに投稿する記事を作成してください。
                         if (
                             "503" in error_text
                             or "UNAVAILABLE" in error_text
+                            or "404" in error_text
+                            or "NOT_FOUND" in error_text
                         ):
 
                             st.warning(
-                                "通常モデルが混雑中です。"
+                                "軽量モデルが利用できないため、"
                                 "予備モデルに切り替えます..."
                             )
 
                             response = client.models.generate_content(
-                                model="gemini-3.5-flash-lite",
-                                contents=prompt
+                                model="gemini-3.8-flash",
+                                contents=prompt,
+                                config=generation_config
                             )
+
+                            used_model = "gemini-3.8-flash"
 
                         else:
                             raise
 
                     generated_text = response.text
+
+                    elapsed = time.perf_counter() - start_time
 
                     if not generated_text:
 
@@ -516,14 +518,36 @@ noteに投稿する記事を作成してください。
 
                         st.session_state["generated_article"] = generated_text
                         st.session_state["article_revision"] = 0
+                        st.session_state["generation_time"] = elapsed
+                        st.session_state["generation_model"] = used_model
+
                         st.session_state.pop("quality_result", None)
                         st.session_state.pop("original_generated_article", None)
+                        st.session_state.pop("previous_quality_result", None)
 
-                        st.success("記事が完成しました！")
+                        st.success(
+                            f"記事が完成しました！ 処理時間：{elapsed:.1f}秒"
+                        )
 
             except Exception as e:
 
                 st.error(f"記事生成エラー：{e}")
+
+
+# --------------------------------
+# 生成時間表示
+# --------------------------------
+
+if st.session_state.get("generation_time") is not None:
+
+    st.metric(
+        "記事生成時間",
+        f"{st.session_state['generation_time']:.1f}秒"
+    )
+
+    st.caption(
+        f"使用モデル：{st.session_state.get('generation_model', '未確認')}"
+    )
 
 
 # --------------------------------
@@ -542,6 +566,9 @@ if st.session_state.get("generated_article"):
     ):
 
         try:
+
+            start_time = time.perf_counter()
+
             with st.spinner("グミが記事を確認しています..."):
 
                 selected_item = st.session_state.get(
@@ -567,10 +594,29 @@ if st.session_state.get("generated_article"):
                     selected_item=selected_item
                 )
 
+                elapsed = time.perf_counter() - start_time
+
                 st.session_state["quality_result"] = quality_result
+                st.session_state["quality_time"] = elapsed
+
+            st.success(
+                f"品質チェック完了！ 処理時間：{elapsed:.1f}秒"
+            )
 
         except Exception as e:
             st.error(f"品質チェックエラー：{e}")
+
+
+# --------------------------------
+# 品質チェック時間表示
+# --------------------------------
+
+if st.session_state.get("quality_time") is not None:
+
+    st.metric(
+        "品質チェック時間",
+        f"{st.session_state['quality_time']:.1f}秒"
+    )
 
 
 # --------------------------------
@@ -589,7 +635,6 @@ if st.session_state.get("quality_result"):
 
     st.caption(
         "グミの指摘をもとにボボが記事を修正します。"
-        "修正前の記事も比較用に保存されます。"
     )
 
     if st.button(
@@ -598,6 +643,8 @@ if st.session_state.get("quality_result"):
     ):
 
         try:
+
+            start_time = time.perf_counter()
 
             with st.spinner("ボボがグミの指摘を反映しています..."):
 
@@ -623,41 +670,55 @@ if st.session_state.get("quality_result"):
                     selected_item=selected_item
                 )
 
+                elapsed = time.perf_counter() - start_time
+
                 if not revised_article or not revised_article.strip():
 
                     st.error("修正後の記事が空でした。")
 
                 else:
 
-                    # 修正前の記事を保存
                     st.session_state["original_generated_article"] = (
                         current_article
                     )
 
-                    # 修正前の品質チェック結果も保存
                     st.session_state["previous_quality_result"] = (
                         quality_result
                     )
 
-                    # 修正後の記事に置き換える
                     st.session_state["generated_article"] = (
                         revised_article.strip()
                     )
 
-                    # 表示用テキストエリアのキーを更新
                     st.session_state["article_revision"] += 1
 
-                    # 修正後の記事は再チェックが必要
+                    st.session_state["revision_time"] = elapsed
+
                     st.session_state.pop("quality_result", None)
 
                     st.success(
-                        "ボボが記事を修正しました！"
+                        f"ボボが記事を修正しました！ 処理時間：{elapsed:.1f}秒"
+                    )
+
+                    st.info(
                         "修正後の記事をグミに再チェックさせてください。"
                     )
 
         except Exception as e:
 
             st.error(f"記事の自動修正エラー：{e}")
+
+
+# --------------------------------
+# 自動修正時間表示
+# --------------------------------
+
+if st.session_state.get("revision_time") is not None:
+
+    st.metric(
+        "自動修正時間",
+        f"{st.session_state['revision_time']:.1f}秒"
+    )
 
 
 # --------------------------------
@@ -733,6 +794,10 @@ if st.session_state.get("generated_article"):
         st.session_state.pop("quality_result", None)
         st.session_state.pop("original_generated_article", None)
         st.session_state.pop("previous_quality_result", None)
+        st.session_state.pop("generation_time", None)
+        st.session_state.pop("quality_time", None)
+        st.session_state.pop("revision_time", None)
+
         st.session_state["article_revision"] = 0
 
         st.success("記事を保存しました！")
