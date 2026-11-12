@@ -70,7 +70,6 @@ staff_names = [str(name) for name, _ in staff_items]
 cols = st.columns(3)
 
 for i, (name, info) in enumerate(staff_items):
-
     if isinstance(info, dict):
         description = (
             info.get("description")
@@ -98,7 +97,6 @@ tasks = get_tasks()
 articles = get_articles()
 
 total_tasks = len(tasks)
-
 completed_tasks = sum(
     1 for task in tasks
     if task["status"] == "完了"
@@ -146,19 +144,15 @@ with st.form("task_form"):
     )
 
     if task_submit:
-
         if task_title.strip():
-
             add_task(
                 task_title.strip(),
                 task_staff,
                 task_details.strip(),
                 task_priority
             )
-
             st.success("タスクを登録しました！")
             st.rerun()
-
         else:
             st.warning("タスク名を入力してください。")
 
@@ -202,12 +196,10 @@ if tasks:
             )
 
             if new_status != task["status"]:
-
                 update_task_status(
                     task["id"],
                     new_status
                 )
-
                 st.rerun()
 
 else:
@@ -270,11 +262,7 @@ if selected_item:
         f"🛒 選択中の商品：{selected_item.get('name', '商品名未取得')}"
     )
 
-    if selected_item.get("is_demo"):
-        st.warning("この商品は動作確認用の仮データです。")
-
     if st.button("選択した商品を解除する"):
-
         st.session_state["selected_rakuten_item"] = None
         st.rerun()
 
@@ -479,19 +467,7 @@ if st.button(
 ・商品URLは提供されたものだけを使用する。
 """
 
-                        article_structure = """
-【記事構成】
-1. 読者の悩みや疑問
-2. 商品の概要
-3. 商品の特徴
-4. メリット
-5. 注意点・デメリット
-6. 向いている人
-7. 購入前の確認ポイント
-8. まとめ・商品ページへの案内
-"""
-
-                        # テスト用データの場合の安全対策
+                        # デモ商品を使った場合の注意
                         if selected_item.get("is_demo"):
 
                             product_details += """
@@ -507,7 +483,18 @@ if st.button(
 ・テスト用データを実際の商品情報として紹介しない。
 ・未確認の情報を事実として書かない。
 ・記事タイトルに【テスト用・公開禁止】を付ける。
-・実際に販売されているような表現を使用しない。
+"""
+
+                        article_structure = """
+【記事構成】
+1. 読者の悩みや疑問
+2. 商品の概要
+3. 商品の特徴
+4. メリット
+5. 注意点・デメリット
+6. 向いている人
+7. 購入前の確認ポイント
+8. まとめ・商品ページへの案内
 """
 
                     else:
@@ -631,13 +618,9 @@ noteに掲載する完成度の高い記事を作成してください。
                     else:
 
                         st.session_state["generated_article"] = generated_text
-
                         st.session_state["generated_article_type"] = article_type
-
                         st.session_state["generated_selected_item"] = (
-                            selected_item
-                            if article_type == "アフィリエイト記事"
-                            else None
+                            selected_item if article_type == "アフィリエイト記事" else None
                         )
 
                         st.session_state["article_revision"] = 0
@@ -737,7 +720,6 @@ if st.session_state.get("generated_article"):
             )
 
         except Exception as e:
-
             st.error(f"品質チェックエラー：{e}")
 
 
@@ -910,16 +892,6 @@ if st.session_state.get("generated_article"):
         f"記事の修正回数：{revision}回"
     )
 
-    generated_item = st.session_state.get(
-        "generated_selected_item"
-    )
-
-    if generated_item and generated_item.get("is_demo"):
-        st.error(
-            "この記事はテスト用データを使用しています。"
-            "実際の商品情報を確認するまで公開しないでください。"
-        )
-
     st.text_area(
         "記事内容",
         value=generated_text,
@@ -932,36 +904,62 @@ if st.session_state.get("generated_article"):
         use_container_width=True
     ):
 
-        article_lines = generated_text.splitlines()
-
-        title = next(
-            (
-                line.lstrip("# ").strip()
-                for line in article_lines
-                if line.strip()
-            ),
-            "無題の記事"
+        generated_item = st.session_state.get(
+            "generated_selected_item"
         )
 
-        add_article(
-            title,
-            generated_text
+        generated_type = st.session_state.get(
+            "generated_article_type",
+            "一般記事"
         )
 
-        st.session_state.pop("generated_article", None)
-        st.session_state.pop("generated_article_type", None)
-        st.session_state.pop("generated_selected_item", None)
-        st.session_state.pop("quality_result", None)
-        st.session_state.pop("original_generated_article", None)
-        st.session_state.pop("previous_quality_result", None)
-        st.session_state.pop("generation_time", None)
-        st.session_state.pop("quality_time", None)
-        st.session_state.pop("revision_time", None)
+        # デモ商品を使った記事の保存を禁止
+        if (
+            generated_type == "アフィリエイト記事"
+            and generated_item
+            and generated_item.get("is_demo")
+        ):
 
-        st.session_state["article_revision"] = 0
+            st.error(
+                "⚠️ テスト用商品を使用した記事は保存できません。"
+            )
 
-        st.success("記事を保存しました！")
-        st.rerun()
+            st.warning(
+                "実際の商品情報を取得してから記事を作成してください。"
+            )
+
+        else:
+
+            article_lines = generated_text.splitlines()
+
+            title = next(
+                (
+                    line.lstrip("# ").strip()
+                    for line in article_lines
+                    if line.strip()
+                ),
+                "無題の記事"
+            )
+
+            add_article(
+                title,
+                generated_text
+            )
+
+            st.session_state.pop("generated_article", None)
+            st.session_state.pop("generated_article_type", None)
+            st.session_state.pop("generated_selected_item", None)
+            st.session_state.pop("quality_result", None)
+            st.session_state.pop("original_generated_article", None)
+            st.session_state.pop("previous_quality_result", None)
+            st.session_state.pop("generation_time", None)
+            st.session_state.pop("quality_time", None)
+            st.session_state.pop("revision_time", None)
+
+            st.session_state["article_revision"] = 0
+
+            st.success("記事を保存しました！")
+            st.rerun()
 
 
 st.divider()
@@ -1279,6 +1277,10 @@ if rakuten_submit:
                         sort=rakuten_sort
                     )
 
+                # 実際の楽天API検索結果にはデモフラグを付けない
+                for item in rakuten_results:
+                    item["is_demo"] = False
+
                 st.session_state["rakuten_results"] = rakuten_results
 
                 st.session_state["rakuten_search_keyword"] = (
@@ -1339,6 +1341,7 @@ if "rakuten_results" in st.session_state:
             with col_info:
 
                 if item.get("is_demo"):
+
                     st.warning("テスト用の仮データ")
 
                 st.markdown(
@@ -1379,6 +1382,17 @@ if "rakuten_results" in st.session_state:
                         product_url,
                         use_container_width=True
                     )
+
+                    if item.get("affiliate_url"):
+
+                        st.caption("アフィリエイトURL")
+
+                    else:
+
+                        st.caption(
+                            "通常の商品URLです。"
+                            "アフィリエイトURLは未取得です。"
+                        )
 
                 elif item.get("is_demo"):
 
