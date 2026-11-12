@@ -70,6 +70,7 @@ staff_names = [str(name) for name, _ in staff_items]
 cols = st.columns(3)
 
 for i, (name, info) in enumerate(staff_items):
+
     if isinstance(info, dict):
         description = (
             info.get("description")
@@ -97,6 +98,7 @@ tasks = get_tasks()
 articles = get_articles()
 
 total_tasks = len(tasks)
+
 completed_tasks = sum(
     1 for task in tasks
     if task["status"] == "完了"
@@ -144,15 +146,19 @@ with st.form("task_form"):
     )
 
     if task_submit:
+
         if task_title.strip():
+
             add_task(
                 task_title.strip(),
                 task_staff,
                 task_details.strip(),
                 task_priority
             )
+
             st.success("タスクを登録しました！")
             st.rerun()
+
         else:
             st.warning("タスク名を入力してください。")
 
@@ -196,10 +202,12 @@ if tasks:
             )
 
             if new_status != task["status"]:
+
                 update_task_status(
                     task["id"],
                     new_status
                 )
+
                 st.rerun()
 
 else:
@@ -262,7 +270,11 @@ if selected_item:
         f"🛒 選択中の商品：{selected_item.get('name', '商品名未取得')}"
     )
 
+    if selected_item.get("is_demo"):
+        st.warning("この商品は動作確認用の仮データです。")
+
     if st.button("選択した商品を解除する"):
+
         st.session_state["selected_rakuten_item"] = None
         st.rerun()
 
@@ -345,7 +357,8 @@ if manual_submit:
             ),
             "affiliate_url": "",
             "url": manual_url.strip(),
-            "image": ""
+            "image": "",
+            "is_demo": False
         }
 
         st.session_state["apply_selected_item_to_topic"] = True
@@ -478,6 +491,25 @@ if st.button(
 8. まとめ・商品ページへの案内
 """
 
+                        # テスト用データの場合の安全対策
+                        if selected_item.get("is_demo"):
+
+                            product_details += """
+【重要：テスト用データ】
+この商品情報はアプリの動作確認用の仮データです。
+実在する商品の情報として扱わないでください。
+価格・ショップ・評価・口コミ・性能を推測してはいけません。
+記事タイトルの先頭に【テスト用・公開禁止】と付けてください。
+購入を促すリンクや実際の販売情報があるような表現は禁止です。
+"""
+
+                            article_rules += """
+・テスト用データを実際の商品情報として紹介しない。
+・未確認の情報を事実として書かない。
+・記事タイトルに【テスト用・公開禁止】を付ける。
+・実際に販売されているような表現を使用しない。
+"""
+
                     else:
 
                         product_details = """
@@ -599,9 +631,13 @@ noteに掲載する完成度の高い記事を作成してください。
                     else:
 
                         st.session_state["generated_article"] = generated_text
+
                         st.session_state["generated_article_type"] = article_type
+
                         st.session_state["generated_selected_item"] = (
-                            selected_item if article_type == "アフィリエイト記事" else None
+                            selected_item
+                            if article_type == "アフィリエイト記事"
+                            else None
                         )
 
                         st.session_state["article_revision"] = 0
@@ -701,6 +737,7 @@ if st.session_state.get("generated_article"):
             )
 
         except Exception as e:
+
             st.error(f"品質チェックエラー：{e}")
 
 
@@ -872,6 +909,16 @@ if st.session_state.get("generated_article"):
     st.caption(
         f"記事の修正回数：{revision}回"
     )
+
+    generated_item = st.session_state.get(
+        "generated_selected_item"
+    )
+
+    if generated_item and generated_item.get("is_demo"):
+        st.error(
+            "この記事はテスト用データを使用しています。"
+            "実際の商品情報を確認するまで公開しないでください。"
+        )
 
     st.text_area(
         "記事内容",
@@ -1116,8 +1163,32 @@ st.divider()
 st.header("🛒 楽天市場 商品検索")
 
 st.caption(
-    "楽天APIの認証情報を設定すると商品情報を取得できます。"
+    "楽天API接続後は実際の商品を検索できます。"
+    "現在はデモ検索でも動作確認できます。"
 )
+
+search_mode = st.radio(
+    "検索方法",
+    ["デモ商品でテスト", "楽天APIで検索"],
+    horizontal=True,
+    key="rakuten_search_mode"
+)
+
+if search_mode == "デモ商品でテスト":
+
+    st.info(
+        "現在はテスト用の仮データを使用します。"
+        "実際の価格・評価・販売情報ではありません。"
+    )
+
+else:
+
+    st.warning(
+        "楽天APIの認証情報が必要です。"
+        "楽天ウェブサービスの登録画面が復旧するまで、"
+        "実際の商品検索は利用できない可能性があります。"
+    )
+
 
 with st.form("rakuten_search_form"):
 
@@ -1149,7 +1220,7 @@ with st.form("rakuten_search_form"):
     )
 
     rakuten_submit = st.form_submit_button(
-        "🛒 楽天市場の商品を検索",
+        "🛒 商品を検索",
         use_container_width=True
     )
 
@@ -1164,33 +1235,71 @@ if rakuten_submit:
 
         try:
 
-            with st.spinner("楽天市場の商品を検索しています..."):
+            if search_mode == "デモ商品でテスト":
 
-                rakuten_results = search_rakuten_items(
-                    keyword=rakuten_keyword.strip(),
-                    hits=rakuten_hits,
-                    sort=rakuten_sort
+                with st.spinner("テスト用商品データを準備しています..."):
+
+                    rakuten_results = [
+                        {
+                            "name": (
+                                f"【テスト用】{rakuten_keyword.strip()}"
+                            ),
+                            "price": "未確認",
+                            "url": "",
+                            "affiliate_url": "",
+                            "image": "",
+                            "review_average": "未確認",
+                            "review_count": "未確認",
+                            "shop_name": "テスト用ショップ",
+                            "item_code": "DEMO-001",
+                            "availability": "未確認",
+                            "catchcopy": "アプリ動作確認用の商品データです。",
+                            "caption": "実際の商品情報ではありません。",
+                            "is_demo": True
+                        }
+                    ]
+
+                st.session_state["rakuten_results"] = rakuten_results
+
+                st.session_state["rakuten_search_keyword"] = (
+                    rakuten_keyword.strip()
                 )
 
-            st.session_state["rakuten_results"] = rakuten_results
-
-            st.session_state["rakuten_search_keyword"] = (
-                rakuten_keyword.strip()
-            )
-
-            if rakuten_results:
-
                 st.success(
-                    f"{len(rakuten_results)}件の商品が見つかりました。"
+                    "テスト用商品データを1件準備しました。"
                 )
 
             else:
 
-                st.info("該当する商品は見つかりませんでした。")
+                with st.spinner("楽天市場の商品を検索しています..."):
+
+                    rakuten_results = search_rakuten_items(
+                        keyword=rakuten_keyword.strip(),
+                        hits=rakuten_hits,
+                        sort=rakuten_sort
+                    )
+
+                st.session_state["rakuten_results"] = rakuten_results
+
+                st.session_state["rakuten_search_keyword"] = (
+                    rakuten_keyword.strip()
+                )
+
+                if rakuten_results:
+
+                    st.success(
+                        f"{len(rakuten_results)}件の商品が見つかりました。"
+                    )
+
+                else:
+
+                    st.info(
+                        "該当する商品は見つかりませんでした。"
+                    )
 
         except Exception as e:
 
-            st.error(f"楽天商品検索エラー：{e}")
+            st.error(f"商品検索エラー：{e}")
 
 
 # --------------------------------
@@ -1199,7 +1308,7 @@ if rakuten_submit:
 
 if "rakuten_results" in st.session_state:
 
-    st.subheader("📦 楽天市場の商品検索結果")
+    st.subheader("📦 商品検索結果")
 
     st.caption(
         f"検索キーワード："
@@ -1229,30 +1338,33 @@ if "rakuten_results" in st.session_state:
 
             with col_info:
 
+                if item.get("is_demo"):
+                    st.warning("テスト用の仮データ")
+
                 st.markdown(
                     f"**{item.get('name', '商品名未取得')}**"
                 )
 
-                price = item.get("price", 0)
+                price = item.get("price", "未確認")
 
-                if price:
+                if isinstance(price, (int, float)) and price > 0:
 
-                    st.write(f"価格：{price:,}円")
+                    st.write(f"価格：{price:,.0f}円")
 
                 else:
 
-                    st.write("価格：未取得")
+                    st.write(f"価格：{price}")
 
                 st.write(
                     f"ショップ：{item.get('shop_name', '未取得')}"
                 )
 
                 st.write(
-                    f"評価：{item.get('review_average', 0)} / 5"
+                    f"評価：{item.get('review_average', '未確認')} / 5"
                 )
 
                 st.write(
-                    f"口コミ件数：{item.get('review_count', 0)}件"
+                    f"口コミ件数：{item.get('review_count', '未確認')}件"
                 )
 
                 product_url = (
@@ -1268,16 +1380,17 @@ if "rakuten_results" in st.session_state:
                         use_container_width=True
                     )
 
-                    if item.get("affiliate_url"):
+                elif item.get("is_demo"):
 
-                        st.caption("アフィリエイトURL")
+                    st.caption(
+                        "テストデータのため商品URLはありません。"
+                    )
 
-                    else:
+                else:
 
-                        st.caption(
-                            "通常の商品URLです。"
-                            "アフィリエイトURLは未取得です。"
-                        )
+                    st.caption(
+                        "商品URL・アフィリエイトURLは未取得です。"
+                    )
 
                 if st.button(
                     "✍️ この記事で紹介する",
@@ -1287,7 +1400,12 @@ if "rakuten_results" in st.session_state:
 
                     st.session_state["selected_rakuten_item"] = item
 
-                    st.session_state["apply_selected_item_to_topic"] = True
+                    st.session_state[
+                        "apply_selected_item_to_topic"
+                    ] = True
 
-                    st.success("商品を記事作成に設定しました！")
+                    st.success(
+                        "商品を記事作成に設定しました！"
+                    )
+
                     st.rerun()
