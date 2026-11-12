@@ -80,6 +80,45 @@ def is_product_verified(item):
 
 
 # --------------------------------
+# アフィリエイトリンク自動挿入
+# --------------------------------
+
+def insert_affiliate_link(article, item):
+
+    if not article or not item:
+        return article
+
+    affiliate_url = (
+        item.get("affiliate_url") or ""
+    ).strip()
+
+    product_name = (
+        item.get("name") or "紹介商品"
+    ).strip()
+
+    # アフィリエイトURLがない場合は記事を変更しない
+    if not affiliate_url:
+        return article
+
+    # 挿入するリンクブロック
+    link_block = f"""## 商品ページはこちら
+
+[**{product_name}の詳細・購入はこちら**]({affiliate_url})
+
+※本記事にはアフィリエイト広告が含まれています。"""
+
+    # 以前に挿入した同一リンクを削除
+    # 同じURLが本文の別の場所にある場合は削除しない
+    article = article.replace(
+        link_block,
+        ""
+    ).strip()
+
+    # 記事末尾にリンクを挿入
+    return article + "\n\n" + link_block
+
+
+# --------------------------------
 # 商品選択後のテーマ自動入力
 # --------------------------------
 
@@ -483,8 +522,7 @@ with st.form("manual_product_form"):
 
     manual_affiliate_url = st.text_input(
         "アフィリエイトURL",
-        placeholder="https://..."
-        ,
+        placeholder="https://...",
         help="ASPなどで発行したアフィリエイト専用URLを入力します。"
     )
 
@@ -836,6 +874,17 @@ noteに掲載する完成度の高い記事を作成してください。
 
                     generated_text = response.text
 
+                    # アフィリエイト記事の場合はリンクを自動挿入
+                    if (
+                        article_type == "アフィリエイト記事"
+                        and selected_item
+                    ):
+
+                        generated_text = insert_affiliate_link(
+                            generated_text,
+                            selected_item
+                        )
+
                     elapsed = (
                         time.perf_counter()
                         - start_time
@@ -1111,6 +1160,17 @@ if st.session_state.get("quality_result"):
 
                 else:
 
+                    # 自動修正後にもアフィリエイトリンクを再挿入
+                    if (
+                        generated_article_type == "アフィリエイト記事"
+                        and selected_item
+                    ):
+
+                        revised_article = insert_affiliate_link(
+                            revised_article.strip(),
+                            selected_item
+                        )
+
                     st.session_state[
                         "original_generated_article"
                     ] = current_article
@@ -1279,6 +1339,12 @@ if st.session_state.get("generated_article"):
                 )
 
             else:
+
+                # 保存直前にもリンクを再挿入
+                generated_text = insert_affiliate_link(
+                    generated_text,
+                    generated_item
+                )
 
                 article_lines = generated_text.splitlines()
 
@@ -1531,7 +1597,8 @@ st.caption(
     "現在は記事生成・保存・編集、タスク管理、"
     "商品リサーチ計画、楽天商品検索、"
     "手動商品登録、商品情報確認、"
-    "記事品質チェック、AIによる記事自動修正機能を搭載しています。"
+    "記事品質チェック、AIによる記事自動修正、"
+    "アフィリエイトリンク自動挿入機能を搭載しています。"
 )
 
 
