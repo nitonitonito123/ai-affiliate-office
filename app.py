@@ -93,26 +93,39 @@ def insert_affiliate_link(article, item):
     ).strip()
 
     product_name = (
-        item.get("name") or "紹介商品"
+        item.get("name") or "おすすめ商品"
     ).strip()
 
     # アフィリエイトURLがない場合は記事を変更しない
     if not affiliate_url:
         return article
 
-    # 挿入するリンクブロック
-    link_block = f"""## 商品ページはこちら
+    # 以前に挿入したリンクブロックを削除
+    # 同じ記事にリンクが重複することを防止
+    old_headings = [
+        "## 商品ページはこちら",
+        "## 気になる方はこちら"
+    ]
+
+    for heading in old_headings:
+
+        if heading in article:
+
+            article = article.split(
+                heading,
+                1
+            )[0].rstrip()
+
+    # 新しい商品紹介ブロック
+    link_block = f"""## 気になる方はこちら
+
+今回紹介した「{product_name}」の詳細は、以下の商品ページから確認できます。
 
 [**{product_name}の詳細・購入はこちら**]({affiliate_url})
 
-※本記事にはアフィリエイト広告が含まれています。"""
+購入前に、商品ページで価格や仕様などの最新情報をご確認ください。
 
-    # 以前に挿入した同一リンクを削除
-    # 同じURLが本文の別の場所にある場合は削除しない
-    article = article.replace(
-        link_block,
-        ""
-    ).strip()
+※本記事にはアフィリエイト広告が含まれています。"""
 
     # 記事末尾にリンクを挿入
     return article + "\n\n" + link_block
