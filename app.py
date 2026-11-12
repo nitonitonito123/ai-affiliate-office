@@ -481,6 +481,13 @@ with st.form("manual_product_form"):
         placeholder="https://..."
     )
 
+    manual_affiliate_url = st.text_input(
+        "アフィリエイトURL",
+        placeholder="https://..."
+        ,
+        help="ASPなどで発行したアフィリエイト専用URLを入力します。"
+    )
+
     manual_submit = st.form_submit_button(
         "📦 この商品を記事作成に設定する",
         use_container_width=True
@@ -522,7 +529,7 @@ if manual_submit:
                 else "未確認"
             ),
 
-            "affiliate_url": "",
+            "affiliate_url": manual_affiliate_url.strip(),
 
             "url": manual_url.strip(),
 
