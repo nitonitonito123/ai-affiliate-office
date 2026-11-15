@@ -1,4 +1,3 @@
-
 import time
 import streamlit as st
 from database import (
@@ -47,76 +46,67 @@ if "article_revision" not in st.session_state:
 # --------------------------------
 
 def get_product_source(item):
-
     if not item:
         return "商品情報なし"
-
     if item.get("is_demo"):
         return "デモ商品"
-
     return item.get("source_type", "手動登録")
 
 
 def is_product_verified(item):
-
     if not item:
         return False
-
     if item.get("is_demo", False):
         return False
-
     if item.get("verification_status") != "確認済み":
         return False
 
-    product_url = (
-        item.get("affiliate_url")
-        or item.get("url")
-    )
+    product_url = (item.get("url") or "").strip()
+    affiliate_url = (item.get("affiliate_url") or "").strip()
 
-    if not product_url:
-        return False
-
-    return True
+    return bool(product_url and affiliate_url)
 
 
 # --------------------------------
 # アフィリエイトリンク自動挿入
 # --------------------------------
 
-def insert_affiliate_link(article, item):
+AFFILIATE_BLOCK_START = "<!-- AFFILIATE_BLOCK_START -->"
+AFFILIATE_BLOCK_END = "<!-- AFFILIATE_BLOCK_END -->"
 
-    if not article or not item:
+
+def insert_affiliate_link(article, item):
+    """
+    記事末尾にアフィリエイトブロックを1つだけ挿入する。
+    専用マーカーで囲むことで、再実行しても本文を誤って削除しない。
+    """
+    if not article:
         return article
 
-    affiliate_url = (
-        item.get("affiliate_url") or ""
-    ).strip()
+    if not item:
+        return article
 
-    product_name = (
-        item.get("name") or "おすすめ商品"
-    ).strip()
+    affiliate_url = (item.get("affiliate_url") or "").strip()
+    product_name = (item.get("name") or "おすすめ商品").strip()
 
-    # アフィリエイトURLがない場合は記事を変更しない
+    # URLがない場合は、挿入できない理由を呼び出し元で確認できるよう記事を変更しない
     if not affiliate_url:
         return article
 
-    # 以前に挿入したリンクブロックを削除
-    old_headings = [
+    # 以前の自動挿入ブロックだけを取り除く
+    if AFFILIATE_BLOCK_START in article:
+        article = article.split(AFFILIATE_BLOCK_START, 1)[0].rstrip()
+
+    # 旧方式で挿入されたブロックも、見出し以降を削除して二重挿入を防ぐ
+    for old_heading in (
         "## 商品ページはこちら",
         "## 気になる方はこちら"
-    ]
+    ):
+        if old_heading in article:
+            article = article.split(old_heading, 1)[0].rstrip()
 
-    for heading in old_headings:
-
-        if heading in article:
-
-            article = article.split(
-                heading,
-                1
-            )[0].rstrip()
-
-    # 新しい商品紹介ブロック
-    link_block = f"""## 気になる方はこちら
+    link_block = f"""{AFFILIATE_BLOCK_START}
+## 気になる方はこちら
 
 今回紹介した「{product_name}」の詳細は、以下の商品ページから確認できます。
 
@@ -124,10 +114,18 @@ def insert_affiliate_link(article, item):
 
 購入前に、商品ページで価格や仕様などの最新情報をご確認ください。
 
-※本記事にはアフィリエイト広告が含まれています。"""
+※本記事にはアフィリエイト広告が含まれています。
+{AFFILIATE_BLOCK_END}"""
 
-    # 記事末尾にリンクを挿入
-    return article + "\n\n" + link_block
+    return article.rstrip() + "\n\n" + link_block
+
+
+def has_affiliate_link_block(article):
+    return bool(
+        article
+        and AFFILIATE_BLOCK_START in article
+        and AFFILIATE_BLOCK_END in article
+    )
 
 
 # --------------------------------
@@ -135,16 +133,9 @@ def insert_affiliate_link(article, item):
 # --------------------------------
 
 if st.session_state.pop("apply_selected_item_to_topic", False):
-
-    selected_item = st.session_state.get(
-        "selected_rakuten_item"
-    )
-
+    selected_item = st.session_state.get("selected_rakuten_item")
     if selected_item:
-
-        st.session_state["topic_input"] = (
-            selected_item.get("name", "")
-        )
+        st.session_state["topic_input"] = selected_item.get("name", "")
 
 
 st.title("🤖 AI Affiliate Office")
@@ -158,11 +149,8 @@ st.caption("6人のAIスタッフと運営するアフィリエイト事務所")
 st.header("👥 AIスタッフ")
 
 if isinstance(STAFF, dict):
-
     staff_items = list(STAFF.items())
-
 else:
-
     staff_items = [
         (
             item.get("name", f"スタッフ{i + 1}"),
@@ -172,33 +160,22 @@ else:
         for i, item in enumerate(STAFF)
     ]
 
-staff_names = [
-    str(name)
-    for name, _ in staff_items
-]
-
+staff_names = [str(name) for name, _ in staff_items]
 cols = st.columns(3)
 
 for i, (name, info) in enumerate(staff_items):
-
     if isinstance(info, dict):
-
         description = (
             info.get("description")
             or info.get("role")
             or info.get("job")
             or "AIスタッフ"
         )
-
     else:
-
         description = str(info)
 
     with cols[i % 3]:
-
-        st.info(
-            f"**{name}**\n\n{description}"
-        )
+        st.info(f"**{name}**\n\n{description}")
 
 
 st.divider()
@@ -214,16 +191,13 @@ tasks = get_tasks()
 articles = get_articles()
 
 total_tasks = len(tasks)
-
 completed_tasks = sum(
     1 for task in tasks
     if task["status"] == "完了"
 )
-
 total_articles = len(articles)
 
 col1, col2, col3 = st.columns(3)
-
 col1.metric("登録タスク", total_tasks)
 col2.metric("完了タスク", completed_tasks)
 col3.metric("保存済み記事", total_articles)
@@ -240,43 +214,30 @@ st.header("📝 タスク管理")
 st.subheader("新しいタスクを登録")
 
 with st.form("task_form"):
-
     task_title = st.text_input("タスク名")
-
-    task_staff = st.selectbox(
-        "担当スタッフ",
-        staff_names
-    )
-
+    task_staff = st.selectbox("担当スタッフ", staff_names)
     task_details = st.text_area("タスクの詳細")
-
     task_priority = st.selectbox(
         "優先度",
         ["高", "中", "低"],
         index=1
     )
-
     task_submit = st.form_submit_button(
         "タスクを登録",
         use_container_width=True
     )
 
     if task_submit:
-
         if task_title.strip():
-
             add_task(
                 task_title.strip(),
                 task_staff,
                 task_details.strip(),
                 task_priority
             )
-
             st.success("タスクを登録しました！")
             st.rerun()
-
         else:
-
             st.warning("タスク名を入力してください。")
 
 
@@ -285,30 +246,18 @@ with st.form("task_form"):
 # --------------------------------
 
 st.subheader("📋 登録済みタスク")
-
 tasks = get_tasks()
 
 if tasks:
-
     for task in tasks:
-
         with st.expander(task["title"]):
-
             st.write(f"担当：{task['staff']}")
             st.write(f"優先度：{task['priority']}")
 
             if task.get("details"):
+                st.write(f"詳細：{task['details']}")
 
-                st.write(
-                    f"詳細：{task['details']}"
-                )
-
-            status_options = [
-                "未着手",
-                "進行中",
-                "完了"
-            ]
-
+            status_options = ["未着手", "進行中", "完了"]
             current_status = task["status"]
 
             if current_status not in status_options:
@@ -322,16 +271,9 @@ if tasks:
             )
 
             if new_status != task["status"]:
-
-                update_task_status(
-                    task["id"],
-                    new_status
-                )
-
+                update_task_status(task["id"], new_status)
                 st.rerun()
-
 else:
-
     st.info("まだタスクは登録されていません。")
 
 
@@ -358,19 +300,15 @@ article_type = st.radio(
 )
 
 if article_type == "一般記事":
-
     st.info(
         "📘 一般記事：節約・暮らし・知識など、"
         "読者に役立つ情報を中心に作成します。"
     )
-
 else:
-
     st.info(
         "🛒 アフィリエイト記事：商品情報をもとに、"
         "特徴・メリット・注意点を紹介する記事を作成します。"
     )
-
 
 topic = st.text_input(
     "記事のテーマ",
@@ -383,100 +321,69 @@ topic = st.text_input(
 # 選択中の商品表示・確認
 # --------------------------------
 
-selected_item = st.session_state.get(
-    "selected_rakuten_item"
-)
+selected_item = st.session_state.get("selected_rakuten_item")
 
 if selected_item:
-
     st.subheader("🛒 選択中の商品")
-
-    st.write(
-        f"商品名：{selected_item.get('name', '未取得')}"
-    )
-
-    st.write(
-        f"商品情報の取得元：{get_product_source(selected_item)}"
-    )
+    st.write(f"商品名：{selected_item.get('name', '未取得')}")
+    st.write(f"商品情報の取得元：{get_product_source(selected_item)}")
 
     if selected_item.get("is_demo"):
-
         st.error(
             "この商品はテスト用データです。"
             "記事作成・保存には使用できません。"
         )
-
     elif is_product_verified(selected_item):
-
         st.success("商品情報：確認済み")
-
+        st.caption("商品ページURL・アフィリエイトURLの両方が登録されています。")
     else:
+        st.warning("商品情報：未確認、または必要なURLが不足しています。")
 
-        st.warning("商品情報：未確認")
-
-        product_url = (
-            selected_item.get("affiliate_url")
-            or selected_item.get("url")
-        )
+        product_url = (selected_item.get("url") or "").strip()
+        affiliate_url = (selected_item.get("affiliate_url") or "").strip()
 
         if product_url:
-
             st.link_button(
-                "商品ページを開いて確認する",
+                "通常の商品ページを開いて確認する",
                 product_url,
                 use_container_width=True
             )
-
         else:
+            st.error("通常の商品ページURLが登録されていません。")
 
-            st.error(
-                "商品ページURLがありません。"
-                "URLを登録してください。"
+        if affiliate_url:
+            st.link_button(
+                "アフィリエイトURLを開いて確認する",
+                affiliate_url,
+                use_container_width=True
             )
+        else:
+            st.error("アフィリエイトURLが登録されていません。")
 
         with st.form("verify_selected_product_form"):
-
             confirm_product = st.checkbox(
                 "商品名・価格・販売ショップ・商品ページが一致していることを確認しました。"
             )
-
             verify_submit = st.form_submit_button(
                 "✅ 商品情報を確認済みにする",
                 use_container_width=True
             )
 
             if verify_submit:
-
                 if not product_url:
-
-                    st.error(
-                        "商品ページURLがないため確認済みにできません。"
-                    )
-
+                    st.error("商品ページURLがないため確認済みにできません。")
+                elif not affiliate_url:
+                    st.error("アフィリエイトURLがないため確認済みにできません。")
                 elif not confirm_product:
-
-                    st.warning(
-                        "商品情報を確認したことをチェックしてください。"
-                    )
-
+                    st.warning("商品情報を確認したことをチェックしてください。")
                 else:
-
                     selected_item["verification_status"] = "確認済み"
-
                     selected_item["verified_by_user"] = True
-
-                    st.session_state[
-                        "selected_rakuten_item"
-                    ] = selected_item
-
-                    st.success(
-                        "商品情報を確認済みにしました！"
-                    )
-
+                    st.session_state["selected_rakuten_item"] = selected_item
+                    st.success("商品情報を確認済みにしました！")
                     st.rerun()
 
     if st.button("選択した商品を解除する"):
-
         st.session_state["selected_rakuten_item"] = None
         st.rerun()
 
@@ -486,7 +393,6 @@ if selected_item:
 # --------------------------------
 
 st.subheader("📝 商品情報の手動登録")
-
 st.caption(
     "楽天APIが利用できない場合も、"
     "商品情報を入力して紹介記事を作成できます。"
@@ -494,24 +400,20 @@ st.caption(
 )
 
 with st.form("manual_product_form"):
-
     manual_name = st.text_input(
         "商品名",
         placeholder="例：ワイヤレスイヤホン"
     )
-
     manual_price = st.number_input(
         "販売価格（円）",
         min_value=0,
         value=0,
         step=100
     )
-
     manual_shop = st.text_input(
         "販売ショップ",
         placeholder="例：〇〇ショップ"
     )
-
     manual_review = st.number_input(
         "商品評価（未確認の場合は0）",
         min_value=0.0,
@@ -519,89 +421,50 @@ with st.form("manual_product_form"):
         value=0.0,
         step=0.1
     )
-
     manual_review_count = st.number_input(
         "口コミ件数（未確認の場合は0）",
         min_value=0,
         value=0,
         step=1
     )
-
     manual_url = st.text_input(
         "商品ページURL",
         placeholder="https://..."
     )
-
     manual_affiliate_url = st.text_input(
         "アフィリエイトURL",
         placeholder="https://...",
         help="ASPなどで発行したアフィリエイト専用URLを入力します。"
     )
-
     manual_submit = st.form_submit_button(
         "📦 この商品を記事作成に設定する",
         use_container_width=True
     )
 
-
 if manual_submit:
-
     if not manual_name.strip():
-
         st.warning("商品名を入力してください。")
-
+    elif not manual_url.strip():
+        st.warning("商品ページURLを入力してください。")
+    elif not manual_affiliate_url.strip():
+        st.warning("アフィリエイトURLを入力してください。")
     else:
-
         st.session_state["selected_rakuten_item"] = {
-
             "name": manual_name.strip(),
-
-            "price": (
-                manual_price
-                if manual_price > 0
-                else "未確認"
-            ),
-
-            "shop_name": (
-                manual_shop.strip()
-                or "未確認"
-            ),
-
-            "review_average": (
-                manual_review
-                if manual_review > 0
-                else "未確認"
-            ),
-
-            "review_count": (
-                manual_review_count
-                if manual_review_count > 0
-                else "未確認"
-            ),
-
+            "price": manual_price if manual_price > 0 else "未確認",
+            "shop_name": manual_shop.strip() or "未確認",
+            "review_average": manual_review if manual_review > 0 else "未確認",
+            "review_count": manual_review_count if manual_review_count > 0 else "未確認",
             "affiliate_url": manual_affiliate_url.strip(),
-
             "url": manual_url.strip(),
-
             "image": "",
-
             "is_demo": False,
-
             "source_type": "手動登録",
-
             "verification_status": "未確認",
-
             "verified_by_user": False
         }
-
-        st.session_state[
-            "apply_selected_item_to_topic"
-        ] = True
-
-        st.success(
-            "商品情報を記事作成に設定しました！"
-        )
-
+        st.session_state["apply_selected_item_to_topic"] = True
+        st.success("商品情報を記事作成に設定しました！")
         st.rerun()
 
 
@@ -636,87 +499,36 @@ length = st.selectbox(
 # ボボの記事生成
 # --------------------------------
 
-if st.button(
-    "🤖 ボボに記事を作成させる",
-    use_container_width=True
-):
+if st.button("🤖 ボボに記事を作成させる", use_container_width=True):
+    selected_item = st.session_state.get("selected_rakuten_item")
 
     if not topic.strip():
-
-        st.warning(
-            "記事のテーマを入力してください。"
-        )
-
-    elif (
-        article_type == "アフィリエイト記事"
-        and not st.session_state.get("selected_rakuten_item")
-    ):
-
+        st.warning("記事のテーマを入力してください。")
+    elif article_type == "アフィリエイト記事" and not selected_item:
         st.warning(
             "アフィリエイト記事を作成するには、"
             "先に紹介する商品を選択してください。"
         )
-
-    elif (
-        article_type == "アフィリエイト記事"
-        and st.session_state.get(
-            "selected_rakuten_item",
-            {}
-        ).get("is_demo")
-    ):
-
-        st.error(
-            "テスト用商品では記事を生成できません。"
-        )
-
-    elif (
-        article_type == "アフィリエイト記事"
-        and not is_product_verified(
-            st.session_state.get(
-                "selected_rakuten_item",
-                {}
-            )
-        )
-    ):
-
+    elif article_type == "アフィリエイト記事" and selected_item.get("is_demo"):
+        st.error("テスト用商品では記事を生成できません。")
+    elif article_type == "アフィリエイト記事" and not is_product_verified(selected_item):
         st.warning(
-            "商品情報が未確認です。"
-            "商品ページを開いて確認済みにしてください。"
+            "商品情報が未確認、またはURLが不足しています。"
+            "商品ページとアフィリエイトURLを確認してください。"
         )
-
     else:
-
-        api_key = st.secrets.get(
-            "GEMINI_API_KEY",
-            ""
-        )
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
 
         if not api_key:
-
-            st.error(
-                "Gemini APIキーが設定されていません。"
-            )
-
+            st.error("Gemini APIキーが設定されていません。")
         else:
-
             try:
-
                 start_time = time.perf_counter()
 
-                with st.spinner(
-                    "ボボが記事を執筆しています..."
-                ):
-
-                    client = genai.Client(
-                        api_key=api_key
-                    )
-
-                    selected_item = st.session_state.get(
-                        "selected_rakuten_item"
-                    )
+                with st.spinner("ボボが記事を執筆しています..."):
+                    client = genai.Client(api_key=api_key)
 
                     if article_type == "アフィリエイト記事":
-
                         product_details = f"""
 【紹介する商品情報】
 
@@ -735,7 +547,6 @@ if st.button(
 口コミ件数：
 {selected_item.get("review_count", "未取得")}
 """
-
                         article_rules = """
 【アフィリエイト記事の執筆条件】
 
@@ -752,8 +563,10 @@ if st.button(
 ・商品ページへの誘導文や購入ボタンを作成しない。
 ・広告表示やアフィリエイト表記を自分で追加しない。
 ・商品紹介ブロックと広告表示はシステム側で自動挿入する。
+・「こんにちは、ボボです」などの自己紹介や挨拶を書かない。
+・ライター名、AI名、執筆者としての自己紹介を書かない。
+・記事タイトルから始め、読者にとって自然な本文にする。
 """
-
                         article_structure = """
 【記事構成】
 
@@ -766,9 +579,7 @@ if st.button(
 7. 購入前の確認ポイント
 8. まとめ
 """
-
                     else:
-
                         product_details = """
 【商品情報】
 
@@ -776,7 +587,6 @@ if st.button(
 商品情報や商品URLを使用する必要はありません。
 選択中の商品があっても、商品紹介は行わないでください。
 """
-
                         article_rules = """
 【一般記事の執筆条件】
 
@@ -789,8 +599,10 @@ if st.button(
 ・未確認情報を事実として書かない。
 ・商品紹介や購入への誘導を無理に入れない。
 ・読者が記事を読んだ後に行動できる内容にする。
+・「こんにちは、ボボです」などの自己紹介や挨拶を書かない。
+・ライター名、AI名、執筆者としての自己紹介を書かない。
+・記事タイトルから始め、読者にとって自然な本文にする。
 """
-
                         article_structure = """
 【記事構成】
 
@@ -804,7 +616,7 @@ if st.button(
 """
 
                     prompt = f"""
-あなたはプロのWebライター「ボボ」です。
+あなたはプロのWebライターです。
 noteに掲載する完成度の高い記事を作成してください。
 
 【記事の種類】
@@ -833,145 +645,91 @@ noteに掲載する完成度の高い記事を作成してください。
 ・そのままnoteに掲載できる形式にする。
 ・内容の水増しをしない。
 ・事実と意見を区別する。
+・前置き、挨拶、自己紹介、執筆者コメントは出力しない。
+・完成した記事本文だけを出力する。
 
 {article_structure}
 
 完成した記事だけを出力してください。
 """
 
-                    generation_config = (
-                        genai.types.GenerateContentConfig(
-                            max_output_tokens=6000
-                        )
+                    generation_config = genai.types.GenerateContentConfig(
+                        max_output_tokens=6000
                     )
 
                     try:
-
                         response = client.models.generate_content(
                             model="gemini-3.5-flash-lite",
                             contents=prompt,
                             config=generation_config
                         )
-
                         used_model = "gemini-3.5-flash-lite"
-
                     except Exception as e:
-
                         error_text = str(e)
-
                         if (
                             "503" in error_text
                             or "UNAVAILABLE" in error_text
                             or "404" in error_text
                             or "NOT_FOUND" in error_text
                         ):
-
                             st.warning(
                                 "軽量モデルが利用できないため、"
                                 "予備モデルに切り替えます..."
                             )
-
                             response = client.models.generate_content(
                                 model="gemini-3.8-flash",
                                 contents=prompt,
                                 config=generation_config
                             )
-
                             used_model = "gemini-3.8-flash"
-
                         else:
-
                             raise
 
-                    generated_text = response.text
+                    generated_text = response.text or ""
 
-                    # アフィリエイト記事の場合はリンクを自動挿入
-                    if (
-                        article_type == "アフィリエイト記事"
-                        and selected_item
-                    ):
-
-                        generated_text = insert_affiliate_link(
-                            generated_text,
-                            selected_item
-                        )
-
-                    elapsed = (
-                        time.perf_counter()
-                        - start_time
-                    )
-
-                    if not generated_text:
-
-                        st.error(
-                            "記事を生成できませんでした。"
-                        )
-
+                    if not generated_text.strip():
+                        st.error("記事を生成できませんでした。")
                     else:
+                        if article_type == "アフィリエイト記事":
+                            generated_text = insert_affiliate_link(
+                                generated_text.strip(),
+                                selected_item
+                            )
 
-                        st.session_state[
-                            "generated_article"
-                        ] = generated_text
+                            if not has_affiliate_link_block(generated_text):
+                                st.error(
+                                    "記事は生成されましたが、"
+                                    "アフィリエイトリンクを挿入できませんでした。"
+                                    "登録商品のアフィリエイトURLを確認してください。"
+                            )
+                                st.stop()
 
-                        st.session_state[
-                            "generated_article_type"
-                        ] = article_type
+                        elapsed = time.perf_counter() - start_time
 
-                        st.session_state[
-                            "generated_selected_item"
-                        ] = (
-                            selected_item
-                            if article_type == "アフィリエイト記事"
-                            else None
+                        st.session_state["generated_article"] = generated_text
+                        st.session_state["generated_article_type"] = article_type
+                        st.session_state["generated_selected_item"] = (
+                            selected_item if article_type == "アフィリエイト記事" else None
                         )
+                        st.session_state["article_revision"] = 0
+                        st.session_state["generation_time"] = elapsed
+                        st.session_state["generation_model"] = used_model
 
-                        st.session_state[
-                            "article_revision"
-                        ] = 0
-
-                        st.session_state[
-                            "generation_time"
-                        ] = elapsed
-
-                        st.session_state[
-                            "generation_model"
-                        ] = used_model
-
-                        st.session_state.pop(
+                        for key in (
                             "quality_result",
-                            None
-                        )
-
-                        st.session_state.pop(
                             "original_generated_article",
-                            None
-                        )
-
-                        st.session_state.pop(
                             "previous_quality_result",
-                            None
-                        )
-
-                        st.session_state.pop(
                             "quality_time",
-                            None
-                        )
-
-                        st.session_state.pop(
-                            "revision_time",
-                            None
-                        )
+                            "revision_time"
+                        ):
+                            st.session_state.pop(key, None)
 
                         st.success(
-                            f"記事が完成しました！ "
-                            f"処理時間：{elapsed:.1f}秒"
+                            f"記事が完成しました！ 処理時間：{elapsed:.1f}秒"
                         )
 
             except Exception as e:
-
-                st.error(
-                    f"記事生成エラー：{e}"
-                )
+                st.error(f"記事生成エラー：{e}")
 
 
 # --------------------------------
@@ -979,15 +737,12 @@ noteに掲載する完成度の高い記事を作成してください。
 # --------------------------------
 
 if st.session_state.get("generation_time") is not None:
-
     st.metric(
         "記事生成時間",
         f"{st.session_state['generation_time']:.1f}秒"
     )
-
     st.caption(
-        f"使用モデル："
-        f"{st.session_state.get('generation_model', '未確認')}"
+        f"使用モデル：{st.session_state.get('generation_model', '未確認')}"
     )
 
 
@@ -996,45 +751,23 @@ if st.session_state.get("generation_time") is not None:
 # --------------------------------
 
 st.divider()
-
 st.subheader("📋 グミの品質チェック")
-
-st.caption(
-    "記事の種類に合わせて公開前の品質を確認します。"
-)
+st.caption("記事の種類に合わせて公開前の品質を確認します。")
 
 if st.session_state.get("generated_article"):
-
     generated_article_type = st.session_state.get(
         "generated_article_type",
         "一般記事"
     )
+    st.caption(f"チェック対象：{generated_article_type}")
 
-    st.caption(
-        f"チェック対象：{generated_article_type}"
-    )
-
-    if st.button(
-        "🔍 グミに品質チェックさせる",
-        use_container_width=True
-    ):
-
+    if st.button("🔍 グミに品質チェックさせる", use_container_width=True):
         try:
-
             start_time = time.perf_counter()
 
-            with st.spinner(
-                "グミが記事を確認しています..."
-            ):
-
-                selected_item = st.session_state.get(
-                    "generated_selected_item"
-                )
-
-                article_text = st.session_state[
-                    "generated_article"
-                ]
-
+            with st.spinner("グミが記事を確認しています..."):
+                selected_item = st.session_state.get("generated_selected_item")
+                article_text = st.session_state["generated_article"]
                 article_lines = article_text.splitlines()
 
                 article_title = next(
@@ -1053,29 +786,15 @@ if st.session_state.get("generated_article"):
                     article_type=generated_article_type
                 )
 
-                elapsed = (
-                    time.perf_counter()
-                    - start_time
-                )
-
-                st.session_state[
-                    "quality_result"
-                ] = quality_result
-
-                st.session_state[
-                    "quality_time"
-                ] = elapsed
+                elapsed = time.perf_counter() - start_time
+                st.session_state["quality_result"] = quality_result
+                st.session_state["quality_time"] = elapsed
 
             st.success(
-                f"品質チェック完了！ "
-                f"処理時間：{elapsed:.1f}秒"
+                f"品質チェック完了！ 処理時間：{elapsed:.1f}秒"
             )
-
         except Exception as e:
-
-            st.error(
-                f"品質チェックエラー：{e}"
-            )
+            st.error(f"品質チェックエラー：{e}")
 
 
 # --------------------------------
@@ -1083,7 +802,6 @@ if st.session_state.get("generated_article"):
 # --------------------------------
 
 if st.session_state.get("quality_time") is not None:
-
     st.metric(
         "品質チェック時間",
         f"{st.session_state['quality_time']:.1f}秒"
@@ -1095,46 +813,21 @@ if st.session_state.get("quality_time") is not None:
 # --------------------------------
 
 if st.session_state.get("quality_result"):
-
     st.markdown("### 📝 グミのチェック結果")
-
-    st.markdown(
-        st.session_state["quality_result"]
-    )
-
+    st.markdown(st.session_state["quality_result"])
     st.divider()
 
     st.subheader("🛠️ ボボによる自動修正")
+    st.caption("グミの指摘を反映し、記事の種類に合わせて修正します。")
 
-    st.caption(
-        "グミの指摘を反映し、記事の種類に合わせて修正します。"
-    )
-
-    if st.button(
-        "✍️ ボボに記事を自動修正させる",
-        use_container_width=True
-    ):
-
+    if st.button("✍️ ボボに記事を自動修正させる", use_container_width=True):
         try:
-
             start_time = time.perf_counter()
 
-            with st.spinner(
-                "ボボがグミの指摘を反映しています..."
-            ):
-
-                current_article = st.session_state[
-                    "generated_article"
-                ]
-
-                quality_result = st.session_state[
-                    "quality_result"
-                ]
-
-                selected_item = st.session_state.get(
-                    "generated_selected_item"
-                )
-
+            with st.spinner("ボボがグミの指摘を反映しています..."):
+                current_article = st.session_state["generated_article"]
+                quality_result = st.session_state["quality_result"]
+                selected_item = st.session_state.get("generated_selected_item")
                 generated_article_type = st.session_state.get(
                     "generated_article_type",
                     "一般記事"
@@ -1155,77 +848,42 @@ if st.session_state.get("quality_result"):
                     article_type=generated_article_type
                 )
 
-                elapsed = (
-                    time.perf_counter()
-                    - start_time
-                )
+                elapsed = time.perf_counter() - start_time
 
-                if (
-                    not revised_article
-                    or not revised_article.strip()
-                ):
-
-                    st.error(
-                        "修正後の記事が空でした。"
-                    )
-
+                if not revised_article or not revised_article.strip():
+                    st.error("修正後の記事が空でした。")
                 else:
+                    revised_article = revised_article.strip()
 
-                    # 自動修正後にもアフィリエイトリンクを再挿入
-                    if (
-                        generated_article_type == "アフィリエイト記事"
-                        and selected_item
-                    ):
-
+                    if generated_article_type == "アフィリエイト記事":
                         revised_article = insert_affiliate_link(
-                            revised_article.strip(),
+                            revised_article,
                             selected_item
                         )
 
-                    st.session_state[
-                        "original_generated_article"
-                    ] = current_article
+                        if not has_affiliate_link_block(revised_article):
+                            st.error(
+                                "自動修正後の記事にアフィリエイトリンクを"
+                                "挿入できませんでした。商品URLを確認してください。"
+                            )
+                            st.stop()
 
-                    st.session_state[
-                        "previous_quality_result"
-                    ] = quality_result
+                    st.session_state["original_generated_article"] = current_article
+                    st.session_state["previous_quality_result"] = quality_result
+                    st.session_state["generated_article"] = revised_article
+                    st.session_state["article_revision"] += 1
+                    st.session_state["revision_time"] = elapsed
 
-                    st.session_state[
-                        "generated_article"
-                    ] = revised_article.strip()
-
-                    st.session_state[
-                        "article_revision"
-                    ] += 1
-
-                    st.session_state[
-                        "revision_time"
-                    ] = elapsed
-
-                    st.session_state.pop(
-                        "quality_result",
-                        None
-                    )
-
-                    st.session_state.pop(
-                        "quality_time",
-                        None
-                    )
+                    st.session_state.pop("quality_result", None)
+                    st.session_state.pop("quality_time", None)
 
                     st.success(
-                        f"ボボが記事を修正しました！ "
-                        f"処理時間：{elapsed:.1f}秒"
+                        f"ボボが記事を修正しました！ 処理時間：{elapsed:.1f}秒"
                     )
-
-                    st.info(
-                        "修正後の記事をグミに再チェックさせてください。"
-                    )
+                    st.info("修正後の記事をグミに再チェックさせてください。")
 
         except Exception as e:
-
-            st.error(
-                f"記事の自動修正エラー：{e}"
-            )
+            st.error(f"記事の自動修正エラー：{e}")
 
 
 # --------------------------------
@@ -1233,7 +891,6 @@ if st.session_state.get("quality_result"):
 # --------------------------------
 
 if st.session_state.get("revision_time") is not None:
-
     st.metric(
         "自動修正時間",
         f"{st.session_state['revision_time']:.1f}秒"
@@ -1245,28 +902,18 @@ if st.session_state.get("revision_time") is not None:
 # --------------------------------
 
 if st.session_state.get("original_generated_article"):
-
     with st.expander("📄 修正前の記事を確認する"):
-
         st.text_area(
             "修正前の記事",
-            value=st.session_state[
-                "original_generated_article"
-            ],
+            value=st.session_state["original_generated_article"],
             height=300,
             disabled=True,
             key="original_article_preview"
         )
 
     if st.session_state.get("previous_quality_result"):
-
         with st.expander("📋 修正前の品質チェック結果"):
-
-            st.markdown(
-                st.session_state[
-                    "previous_quality_result"
-                ]
-            )
+            st.markdown(st.session_state["previous_quality_result"])
 
 
 # --------------------------------
@@ -1274,30 +921,23 @@ if st.session_state.get("original_generated_article"):
 # --------------------------------
 
 if st.session_state.get("generated_article"):
-
     st.subheader("📄 生成された記事")
 
-    generated_text = st.session_state[
-        "generated_article"
-    ]
-
-    revision = st.session_state.get(
-        "article_revision",
-        0
-    )
-
+    generated_text = st.session_state["generated_article"]
+    revision = st.session_state.get("article_revision", 0)
     generated_article_type = st.session_state.get(
         "generated_article_type",
         "一般記事"
     )
 
-    st.caption(
-        f"記事の種類：{generated_article_type}"
-    )
+    st.caption(f"記事の種類：{generated_article_type}")
+    st.caption(f"記事の修正回数：{revision}回")
 
-    st.caption(
-        f"記事の修正回数：{revision}回"
-    )
+    if generated_article_type == "アフィリエイト記事":
+        if has_affiliate_link_block(generated_text):
+            st.success("アフィリエイトリンク：記事末尾に挿入済み")
+        else:
+            st.error("アフィリエイトリンク：未挿入です")
 
     st.text_area(
         "記事内容",
@@ -1306,59 +946,38 @@ if st.session_state.get("generated_article"):
         key=f"generated_article_preview_{revision}"
     )
 
-    if st.button(
-        "📚 この記事を保存する",
-        use_container_width=True
-    ):
-
-        generated_item = st.session_state.get(
-            "generated_selected_item"
-        )
-
+    if st.button("📚 この記事を保存する", use_container_width=True):
+        generated_item = st.session_state.get("generated_selected_item")
         generated_type = st.session_state.get(
             "generated_article_type",
             "一般記事"
         )
 
-        # アフィリエイト記事の保存前チェック
         if generated_type == "アフィリエイト記事":
-
             if not generated_item:
-
-                st.error(
-                    "商品情報がありません。記事を保存できません。"
-                )
-
+                st.error("商品情報がありません。記事を保存できません。")
             elif generated_item.get("is_demo"):
-
-                st.error(
-                    "⚠️ テスト用商品を使用した記事は保存できません。"
-                )
-
-                st.warning(
-                    "実際の商品情報を取得してから記事を作成してください。"
-                )
-
+                st.error("⚠️ テスト用商品を使用した記事は保存できません。")
+                st.warning("実際の商品情報を取得してから記事を作成してください。")
             elif not is_product_verified(generated_item):
-
                 st.error(
-                    "商品情報が未確認のため、記事を保存できません。"
+                    "商品情報が未確認、またはURLが不足しているため、"
+                    "記事を保存できません。"
                 )
-
-                st.warning(
-                    "商品ページを確認し、確認済みにしてから記事を作成してください。"
-                )
-
             else:
-
-                # 保存直前にもリンクを再挿入
                 generated_text = insert_affiliate_link(
                     generated_text,
                     generated_item
                 )
 
-                article_lines = generated_text.splitlines()
+                if not has_affiliate_link_block(generated_text):
+                    st.error(
+                        "アフィリエイトリンクが挿入されていないため、"
+                        "保存を中止しました。"
+                    )
+                    st.stop()
 
+                article_lines = generated_text.splitlines()
                 title = next(
                     (
                         line.lstrip("# ").strip()
@@ -1368,68 +987,27 @@ if st.session_state.get("generated_article"):
                     "無題の記事"
                 )
 
-                add_article(
-                    title,
-                    generated_text
-                )
+                add_article(title, generated_text)
 
-                st.session_state.pop(
+                for key in (
                     "generated_article",
-                    None
-                )
-
-                st.session_state.pop(
                     "generated_article_type",
-                    None
-                )
-
-                st.session_state.pop(
                     "generated_selected_item",
-                    None
-                )
-
-                st.session_state.pop(
                     "quality_result",
-                    None
-                )
-
-                st.session_state.pop(
                     "original_generated_article",
-                    None
-                )
-
-                st.session_state.pop(
                     "previous_quality_result",
-                    None
-                )
-
-                st.session_state.pop(
                     "generation_time",
-                    None
-                )
-
-                st.session_state.pop(
                     "quality_time",
-                    None
-                )
+                    "revision_time"
+                ):
+                    st.session_state.pop(key, None)
 
-                st.session_state.pop(
-                    "revision_time",
-                    None
-                )
-
-                st.session_state[
-                    "article_revision"
-                ] = 0
-
+                st.session_state["article_revision"] = 0
                 st.success("記事を保存しました！")
                 st.rerun()
 
         else:
-
-            # 一般記事は従来どおり保存可能
             article_lines = generated_text.splitlines()
-
             title = next(
                 (
                     line.lstrip("# ").strip()
@@ -1439,60 +1017,22 @@ if st.session_state.get("generated_article"):
                 "無題の記事"
             )
 
-            add_article(
-                title,
-                generated_text
-            )
+            add_article(title, generated_text)
 
-            st.session_state.pop(
+            for key in (
                 "generated_article",
-                None
-            )
-
-            st.session_state.pop(
                 "generated_article_type",
-                None
-            )
-
-            st.session_state.pop(
                 "generated_selected_item",
-                None
-            )
-
-            st.session_state.pop(
                 "quality_result",
-                None
-            )
-
-            st.session_state.pop(
                 "original_generated_article",
-                None
-            )
-
-            st.session_state.pop(
                 "previous_quality_result",
-                None
-            )
-
-            st.session_state.pop(
                 "generation_time",
-                None
-            )
-
-            st.session_state.pop(
                 "quality_time",
-                None
-            )
+                "revision_time"
+            ):
+                st.session_state.pop(key, None)
 
-            st.session_state.pop(
-                "revision_time",
-                None
-            )
-
-            st.session_state[
-                "article_revision"
-            ] = 0
-
+            st.session_state["article_revision"] = 0
             st.success("記事を保存しました！")
             st.rerun()
 
@@ -1505,11 +1045,9 @@ st.divider()
 # --------------------------------
 
 st.header("📚 保存済み記事")
-
 saved_articles = get_articles()
 
 if saved_articles:
-
     article_options = {
         f"{article['title']}（ID：{article['id']}）": article
         for article in saved_articles
@@ -1519,10 +1057,7 @@ if saved_articles:
         "編集する記事を選択",
         list(article_options.keys())
     )
-
-    selected_article = article_options[
-        selected_title
-    ]
+    selected_article = article_options[selected_title]
 
     st.subheader("✏️ 記事の編集")
 
@@ -1539,52 +1074,27 @@ if saved_articles:
         key=f"body_{selected_article['id']}"
     )
 
-    if st.button(
-        "💾 記事を更新",
-        use_container_width=True
-    ):
-
-        if (
-            not edited_title.strip()
-            or not edited_body.strip()
-        ):
-
-            st.warning(
-                "タイトルと本文を入力してください。"
-            )
-
+    if st.button("💾 記事を更新", use_container_width=True):
+        if not edited_title.strip() or not edited_body.strip():
+            st.warning("タイトルと本文を入力してください。")
         else:
-
             update_article(
                 selected_article["id"],
                 edited_title.strip(),
                 edited_body.strip()
             )
-
             st.success("記事を更新しました！")
             st.rerun()
 
     st.divider()
-
     st.subheader("📖 保存済み記事一覧")
 
     for article in saved_articles:
-
         with st.expander(article["title"]):
-
-            st.caption(
-                f"状態：{article['status']}"
-            )
-
-            st.markdown(
-                article["body"]
-            )
-
+            st.caption(f"状態：{article['status']}")
+            st.markdown(article["body"])
 else:
-
-    st.info(
-        "まだ保存された記事はありません。"
-    )
+    st.info("まだ保存された記事はありません。")
 
 
 st.divider()
@@ -1595,7 +1105,6 @@ st.divider()
 # --------------------------------
 
 st.header("🚀 今後の開発予定")
-
 st.markdown("""
 - 楽天アフィリエイトAPIとの連携強化
 - 商品リサーチの自動化
@@ -1621,18 +1130,13 @@ st.divider()
 # --------------------------------
 
 st.header("🔎 商品リサーチ")
-
-st.write(
-    "クルミが商品リサーチの調査計画を作成します。"
-)
+st.write("クルミが商品リサーチの調査計画を作成します。")
 
 with st.form("product_research_form"):
-
     research_keyword = st.text_input(
         "検索キーワード",
         placeholder="例：ワイヤレスイヤホン"
     )
-
     research_category = st.selectbox(
         "商品ジャンル",
         [
@@ -1645,41 +1149,27 @@ with st.form("product_research_form"):
             "その他"
         ]
     )
-
     research_budget = st.number_input(
         "想定予算（円）",
         min_value=0,
         value=5000,
         step=500
     )
-
     research_target = st.text_area(
         "リサーチの条件",
         placeholder="例：口コミが多く、コストパフォーマンスが良い商品"
     )
-
     research_submit = st.form_submit_button(
         "🔍 クルミに調査させる",
         use_container_width=True
     )
 
-
 if research_submit:
-
     if not research_keyword.strip():
-
-        st.warning(
-            "検索キーワードを入力してください。"
-        )
-
+        st.warning("検索キーワードを入力してください。")
     else:
-
         try:
-
-            with st.spinner(
-                "クルミが調査計画を作成しています..."
-            ):
-
+            with st.spinner("クルミが調査計画を作成しています..."):
                 research_result = create_research_plan(
                     research_keyword.strip(),
                     research_category,
@@ -1687,36 +1177,17 @@ if research_submit:
                     research_target.strip()
                 )
 
-            st.session_state[
-                "research_result"
-            ] = research_result
-
-            st.success(
-                "クルミの調査計画が完成しました！"
-            )
-
+            st.session_state["research_result"] = research_result
+            st.success("クルミの調査計画が完成しました！")
         except Exception as e:
-
-            st.error(
-                f"リサーチエラー：{e}"
-            )
-
+            st.error(f"リサーチエラー：{e}")
 
 if st.session_state.get("research_result"):
-
     st.subheader("📋 クルミのリサーチ結果")
-
-    st.markdown(
-        st.session_state["research_result"]
-    )
+    st.markdown(st.session_state["research_result"])
 
     if st.button("🗑️ リサーチ結果を閉じる"):
-
-        st.session_state.pop(
-            "research_result",
-            None
-        )
-
+        st.session_state.pop("research_result", None)
         st.rerun()
 
 
@@ -1728,7 +1199,6 @@ st.divider()
 # --------------------------------
 
 st.header("🛒 楽天市場 商品検索")
-
 st.caption(
     "楽天API接続後は実際の商品を検索できます。"
     "現在はデモ検索でも動作確認できます。"
@@ -1742,34 +1212,24 @@ search_mode = st.radio(
 )
 
 if search_mode == "デモ商品でテスト":
-
-    st.info(
-        "現在はテスト用の仮データを使用します。"
-        "実際の価格・評価・販売情報ではありません。"
-    )
-
+    st.info("現在はテスト用の仮データを使用します。実際の価格・評価・販売情報ではありません。")
 else:
-
     st.warning(
         "楽天APIの認証情報が必要です。"
         "楽天ウェブサービスの登録画面が復旧するまで、"
         "実際の商品検索は利用できない可能性があります。"
     )
 
-
 with st.form("rakuten_search_form"):
-
     rakuten_keyword = st.text_input(
         "商品検索キーワード",
         placeholder="例：ワイヤレスイヤホン"
     )
-
     rakuten_hits = st.selectbox(
         "取得する商品数",
         [5, 10, 20, 30],
         index=1
     )
-
     rakuten_sort = st.selectbox(
         "検索結果の並び順",
         [
@@ -1785,36 +1245,21 @@ with st.form("rakuten_search_form"):
             "-itemPrice": "価格が高い順"
         }[value]
     )
-
     rakuten_submit = st.form_submit_button(
         "🛒 商品を検索",
         use_container_width=True
     )
 
-
 if rakuten_submit:
-
     if not rakuten_keyword.strip():
-
-        st.warning(
-            "検索キーワードを入力してください。"
-        )
-
+        st.warning("検索キーワードを入力してください。")
     else:
-
         try:
-
             if search_mode == "デモ商品でテスト":
-
-                with st.spinner(
-                    "テスト用商品データを準備しています..."
-                ):
-
+                with st.spinner("テスト用商品データを準備しています..."):
                     rakuten_results = [
                         {
-                            "name": (
-                                f"【テスト用】{rakuten_keyword.strip()}"
-                            ),
+                            "name": f"【テスト用】{rakuten_keyword.strip()}",
                             "price": "未確認",
                             "url": "",
                             "affiliate_url": "",
@@ -1833,66 +1278,33 @@ if rakuten_submit:
                         }
                     ]
 
-                st.session_state[
-                    "rakuten_results"
-                ] = rakuten_results
-
-                st.session_state[
-                    "rakuten_search_keyword"
-                ] = rakuten_keyword.strip()
-
-                st.success(
-                    "テスト用商品データを1件準備しました。"
-                )
-
+                st.session_state["rakuten_results"] = rakuten_results
+                st.session_state["rakuten_search_keyword"] = rakuten_keyword.strip()
+                st.success("テスト用商品データを1件準備しました。")
             else:
-
-                with st.spinner(
-                    "楽天市場の商品を検索しています..."
-                ):
-
+                with st.spinner("楽天市場の商品を検索しています..."):
                     rakuten_results = search_rakuten_items(
                         keyword=rakuten_keyword.strip(),
                         hits=rakuten_hits,
                         sort=rakuten_sort
                     )
 
-                # 楽天API取得商品は未確認として登録
                 for item in rakuten_results:
-
                     item["is_demo"] = False
-
                     item["source_type"] = "楽天API取得"
-
                     item["verification_status"] = "未確認"
-
                     item["verified_by_user"] = False
 
-                st.session_state[
-                    "rakuten_results"
-                ] = rakuten_results
-
-                st.session_state[
-                    "rakuten_search_keyword"
-                ] = rakuten_keyword.strip()
+                st.session_state["rakuten_results"] = rakuten_results
+                st.session_state["rakuten_search_keyword"] = rakuten_keyword.strip()
 
                 if rakuten_results:
-
-                    st.success(
-                        f"{len(rakuten_results)}件の商品が見つかりました。"
-                    )
-
+                    st.success(f"{len(rakuten_results)}件の商品が見つかりました。")
                 else:
-
-                    st.info(
-                        "該当する商品は見つかりませんでした。"
-                    )
+                    st.info("該当する商品は見つかりませんでした。")
 
         except Exception as e:
-
-            st.error(
-                f"商品検索エラー：{e}"
-            )
+            st.error(f"商品検索エラー：{e}")
 
 
 # --------------------------------
@@ -1900,78 +1312,37 @@ if rakuten_submit:
 # --------------------------------
 
 if "rakuten_results" in st.session_state:
-
     st.subheader("📦 商品検索結果")
-
     st.caption(
         f"検索キーワード："
         f"{st.session_state.get('rakuten_search_keyword', '')}"
     )
 
-    for index, item in enumerate(
-        st.session_state["rakuten_results"]
-    ):
-
+    for index, item in enumerate(st.session_state["rakuten_results"]):
         with st.container(border=True):
-
             col_image, col_info = st.columns([1, 3])
 
             with col_image:
-
                 if item.get("image"):
-
-                    st.image(
-                        item["image"],
-                        use_container_width=True
-                    )
-
+                    st.image(item["image"], use_container_width=True)
                 else:
-
                     st.write("画像なし")
 
             with col_info:
-
                 if item.get("is_demo"):
+                    st.warning("テスト用の仮データ")
 
-                    st.warning(
-                        "テスト用の仮データ"
-                    )
+                st.markdown(f"**{item.get('name', '商品名未取得')}**")
 
-                st.markdown(
-                    f"**{item.get('name', '商品名未取得')}**"
-                )
-
-                price = item.get(
-                    "price",
-                    "未確認"
-                )
-
-                if (
-                    isinstance(price, (int, float))
-                    and price > 0
-                ):
-
-                    st.write(
-                        f"価格：{price:,.0f}円"
-                    )
-
+                price = item.get("price", "未確認")
+                if isinstance(price, (int, float)) and price > 0:
+                    st.write(f"価格：{price:,.0f}円")
                 else:
+                    st.write(f"価格：{price}")
 
-                    st.write(
-                        f"価格：{price}"
-                    )
-
-                st.write(
-                    f"ショップ：{item.get('shop_name', '未取得')}"
-                )
-
-                st.write(
-                    f"評価：{item.get('review_average', '未確認')} / 5"
-                )
-
-                st.write(
-                    f"口コミ件数：{item.get('review_count', '未確認')}件"
-                )
+                st.write(f"ショップ：{item.get('shop_name', '未取得')}")
+                st.write(f"評価：{item.get('review_average', '未確認')} / 5")
+                st.write(f"口コミ件数：{item.get('review_count', '未確認')}件")
 
                 product_url = (
                     item.get("affiliate_url")
@@ -1979,7 +1350,6 @@ if "rakuten_results" in st.session_state:
                 )
 
                 if product_url:
-
                     st.link_button(
                         "商品ページを開く",
                         product_url,
@@ -1987,46 +1357,23 @@ if "rakuten_results" in st.session_state:
                     )
 
                     if item.get("affiliate_url"):
-
-                        st.caption(
-                            "アフィリエイトURL"
-                        )
-
+                        st.caption("アフィリエイトURL")
                     else:
-
                         st.caption(
                             "通常の商品URLです。"
                             "アフィリエイトURLは未取得です。"
                         )
-
                 elif item.get("is_demo"):
-
-                    st.caption(
-                        "テストデータのため商品URLはありません。"
-                    )
-
+                    st.caption("テストデータのため商品URLはありません。")
                 else:
-
-                    st.caption(
-                        "商品URL・アフィリエイトURLは未取得です。"
-                    )
+                    st.caption("商品URL・アフィリエイトURLは未取得です。")
 
                 if st.button(
                     "✍️ この記事で紹介する",
                     key=f"select_rakuten_item_{index}",
                     use_container_width=True
                 ):
-
-                    st.session_state[
-                        "selected_rakuten_item"
-                    ] = item
-
-                    st.session_state[
-                        "apply_selected_item_to_topic"
-                    ] = True
-
-                    st.success(
-                        "商品を記事作成に設定しました！"
-                    )
-
+                    st.session_state["selected_rakuten_item"] = item
+                    st.session_state["apply_selected_item_to_topic"] = True
+                    st.success("商品を記事作成に設定しました！")
                     st.rerun()
