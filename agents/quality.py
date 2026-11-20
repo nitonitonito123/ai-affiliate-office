@@ -1,4 +1,3 @@
-
 import os
 import re
 import streamlit as st
@@ -189,14 +188,21 @@ UNVERIFIED_CLAIM_PATTERNS = [
 ]
 
 
-# 未確認情報を透明に説明している表現
+# ==========================================
+# 未確認情報の透明な説明
+# ==========================================
+
 TRANSPARENT_PRICE_PATTERNS = [
-    r"価格.{0,20}(?:未確認|未掲載|確認できません|確認してください|公式サイト)",
-    r"値段.{0,20}(?:未確認|未掲載|確認できません|確認してください|公式サイト)",
-    r"価格は.{0,30}(?:確認|公式サイト|販売ページ)",
-    r"最新の価格.{0,30}(?:確認|公式サイト|販売ページ)",
-    r"価格や仕様.{0,30}(?:確認|公式サイト|販売ページ)",
-    r"販売価格.{0,30}(?:確認|公式サイト|販売ページ)",
+    r"価格.{0,30}(?:未確認|未掲載|確認できません|確認してください|公式サイト|販売ページ)",
+    r"値段.{0,30}(?:未確認|未掲載|確認できません|確認してください|公式サイト|販売ページ)",
+    r"価格は.{0,40}(?:確認|公式サイト|販売ページ)",
+    r"最新の価格.{0,40}(?:確認|公式サイト|販売ページ)",
+    r"価格や仕様.{0,40}(?:確認|公式サイト|販売ページ)",
+    r"販売価格.{0,40}(?:確認|公式サイト|販売ページ)",
+    r"価格について.{0,40}(?:確認|公式サイト|販売ページ)",
+    r"価格帯について.{0,40}(?:確認|公式サイト|販売ページ)",
+    r"価格については.{0,40}(?:確認|公式サイト|販売ページ)",
+    r"価格は.{0,40}(?:異なる|変わる|変動)",
 ]
 
 
@@ -209,6 +215,10 @@ def is_transparent_price_notice(article):
         for pattern in TRANSPARENT_PRICE_PATTERNS
     )
 
+
+# ==========================================
+# 根拠確認表現の検出
+# ==========================================
 
 def detect_unverified_claims(article, item=None):
     warnings = []
@@ -227,17 +237,22 @@ def detect_unverified_claims(article, item=None):
         review_count = str(info.get("review_count", "未確認"))
         review_average = str(info.get("review_average", "未確認"))
 
-        # 価格未確認でも、透明に説明している場合は警告しない
         price_unknown = price in (
             "", "未確認", "未登録", "None", "0"
         )
 
+        # 価格が未確認でも、透明に説明している場合は警告しない
         if price_unknown and not is_transparent_price_notice(article):
-            # 具体的な価格を断定している場合のみ警告
-            if re.search(r"\d[\d,]*円|税込\d[\d,]*円", article):
-                warnings.append("価格情報が未確認なのに具体的価格を記載")
 
-        # 未確認口コミの断定
+            # 具体的な価格を記載している場合のみ警告
+            if re.search(
+                r"\d[\d,]*円|税込\d[\d,]*円",
+                article
+            ):
+                warnings.append(
+                    "価格情報が未確認なのに具体的価格を記載"
+                )
+
         reviews_unknown = review_count in (
             "", "未確認", "未登録", "None", "0"
         )
@@ -246,9 +261,10 @@ def detect_unverified_claims(article, item=None):
             r"口コミが多い|レビューが多い|口コミで|レビューで|評判が良い|高評価",
             article
         ):
-            warnings.append("口コミ・評判の根拠が未確認")
+            warnings.append(
+                "口コミ・評判の根拠が未確認"
+            )
 
-        # 未確認評価の断定
         rating_unknown = review_average in (
             "", "未確認", "未登録", "None", "0"
         )
@@ -257,7 +273,9 @@ def detect_unverified_claims(article, item=None):
             r"評価が高い|高評価|星[0-9]|評価[0-9.]+",
             article
         ):
-            warnings.append("商品評価が未確認")
+            warnings.append(
+                "商品評価が未確認"
+            )
 
     return list(dict.fromkeys(warnings))
 
@@ -317,11 +335,20 @@ def get_evaluation_rules(article_type):
 ・根拠のないランキングや推薦を禁止
 
 【判定】
+
 重大な問題が残っている場合「公開推奨」にしない。
-ただし、価格未確認を透明に説明し、価格を断定して
-いない場合、それだけを重大な問題にしない。
+
+価格未確認を透明に説明し、価格を断定していない場合、
+それだけを重大な問題にしない。
+
+根拠確認が必要な表現がある場合は、
+その重大度を判断する。
+
+軽微な表現上の問題だけで、
+自動的に公開非推奨にしない。
 
 判定は以下の3種類：
+
 公開推奨
 修正後に公開推奨
 公開非推奨
@@ -419,7 +446,9 @@ def check_article_quality(
     if article_type == "アフィリエイト記事":
 
         if not selected_item:
-            hard_issues.append("商品情報が登録されていません。")
+            hard_issues.append(
+                "商品情報が登録されていません。"
+            )
 
         elif not product_verified:
             hard_issues.append(
@@ -468,6 +497,17 @@ def check_article_quality(
 
 {get_evaluation_rules(article_type)}
 
+【重要な採点方針】
+
+・100点満点で評価する
+・重大な問題は大幅減点
+・軽微な表現問題は適切な範囲で減点
+・警告が1つあるだけで59点以下にしない
+・透明性のある説明は評価する
+・記事の構成、読みやすさ、情報の正確性を評価する
+・根拠のない性能や人気を断定している場合は減点する
+・問題の重大度と点数を比例させる
+
 【出力形式】
 
 【総合判定】 公開推奨 / 修正後に公開推奨 / 公開非推奨
@@ -487,10 +527,6 @@ def check_article_quality(
 
 【最終アドバイス】
 公開前の必要作業
-
-未確認情報があれば高得点にしない。
-ただし、未確認情報を正直に説明している場合は、
-その透明性を評価する。
 """
 
     ai_result = generate_with_fallback(
@@ -502,7 +538,7 @@ def check_article_quality(
         ai_result = "品質チェック結果を取得できませんでした。"
 
     # --------------------------------------
-    # 強制点数制限
+    # AI採点取得
     # --------------------------------------
 
     ai_score = extract_score(ai_result)
@@ -513,29 +549,39 @@ def check_article_quality(
     score_limit = 100
     forced_judgment = None
 
+    # --------------------------------------
+    # 重大問題による制限
+    # --------------------------------------
+
     if article_type == "アフィリエイト記事":
 
-        # 商品未確認は49点以下
+        # 商品未確認
         if not product_verified:
             score_limit = min(score_limit, 49)
             forced_judgment = "公開非推奨"
 
-        # PR表記の重大な不足
+        # PR表記不足
         if hard_issues:
             score_limit = min(score_limit, 49)
             forced_judgment = "公開非推奨"
 
-        # 根拠不足表現
-        if detected_claims:
-            score_limit = min(score_limit, 59)
+        # ----------------------------------
+        # 根拠確認表現
+        # ----------------------------------
 
-            if forced_judgment is None:
-                forced_judgment = "修正後に公開推奨"
+        # 軽微な問題は59点に固定しない
+        # AIの評価を尊重し、最大79点に制限する
+        if detected_claims:
+            score_limit = min(score_limit, 79)
+
+    # --------------------------------------
+    # 最終点数
+    # --------------------------------------
 
     final_score = min(ai_score, score_limit)
 
     # --------------------------------------
-    # 点数と判定を一致させる
+    # 点数に基づく判定
     # --------------------------------------
 
     if final_score < 60:
@@ -547,13 +593,19 @@ def check_article_quality(
     else:
         final_judgment = "公開推奨"
 
-    # 重大な問題は点数に関係なく公開非推奨
+    # 重大問題は強制的に公開非推奨
     if forced_judgment == "公開非推奨":
         final_judgment = "公開非推奨"
 
-    # 根拠不足が残っている場合は公開推奨を禁止
-    if detected_claims and final_judgment == "公開推奨":
+    # 根拠確認表現が残っている場合、
+    # 公開推奨を禁止する
+    if detected_claims and final_score >= 80:
+        final_score = 79
         final_judgment = "修正後に公開推奨"
+
+    # --------------------------------------
+    # 結果の書き換え
+    # --------------------------------------
 
     ai_result = replace_score(
         ai_result,
@@ -566,7 +618,7 @@ def check_article_quality(
     )
 
     # --------------------------------------
-    # 強制判定理由
+    # プログラム判定理由
     # --------------------------------------
 
     notes = []
@@ -586,7 +638,7 @@ def check_article_quality(
         )
 
     if notes:
-        ai_result += "\n\n【プログラムによる強制判定】\n"
+        ai_result += "\n\n【プログラムによる判定】\n"
         ai_result += "\n".join(
             f"・{note}"
             for note in notes
@@ -691,7 +743,10 @@ def revise_article(
 
     revised_article = revised_article.strip()
 
-    # 元のリンクブロックを復元
+    # --------------------------------------
+    # 元のアフィリエイトリンクを復元
+    # --------------------------------------
+
     if original_affiliate_block:
 
         if AFFILIATE_BLOCK_START in revised_article:
@@ -706,8 +761,12 @@ def revise_article(
             + original_affiliate_block
         )
 
+    # --------------------------------------
     # 冒頭PR表記を強制
+    # --------------------------------------
+
     if article_type == "アフィリエイト記事":
+
         if not has_intro_disclosure(revised_article):
 
             revised_article = (
