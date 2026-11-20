@@ -1,315 +1,415 @@
+
+import os
 import re
 import streamlit as st
 from google import genai
 
 
-# ==========================================
-# Gemini 接続
-# ==========================================
+# --------------------------------
+# Gemini接続
+# --------------------------------
 
 def get_gemini_client():
     api_key = st.secrets.get("GEMINI_API_KEY", "")
 
     if not api_key:
-        raise RuntimeError("Gemini APIキーが設定されていません。")
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY が設定されていません。")
 
     return genai.Client(api_key=api_key)
 
 
-# ==========================================
-# Geminiモデルのフォールバック
-# ==========================================
+# --------------------------------
+# Geminiモデルの切り替え
+# --------------------------------
 
-def generate_with_fallback(client, prompt, max_tokens=2500):
-    models = [
-        "gemini-3.5-flash-lite",
-        "gemini-3.8-flash",
-        "gemini-3.7-flash",
-        "gemini-3.6-flash",
-    ]
+MODEL_CANDIDATES = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+]
 
-    errors = []
 
-    for model in models:
+def generate_with_fallback(prompt, max_output_tokens=6000):
+    client = get_gemini_client()
+    last_error = None
+
+    for model_name in MODEL_CANDIDATES:
         try:
             response = client.models.generate_content(
-                model=model,
+                model=model_name,
                 contents=prompt,
-                config=genai.types.GenerateContentConfig(
-                    max_output_tokens=max_tokens,
-                    temperature=0.2
-                )
+                config={
+                    "temperature": 0.2,
+                    "max_output_tokens": max_output_tokens,
+                },
             )
 
-            if response.text and response.text.strip():
+            if response and response.text:
                 return response.text.strip()
 
-            errors.append(f"{model}: 応答が空でした")
-
         except Exception as e:
-            errors.append(f"{model}: {str(e)[:150]}")
+            last_error = e
+            continue
 
     raise RuntimeError(
-        "すべてのGeminiモデルで処理できませんでした。\n"
-        + "\n".join(errors)
+        f"すべてのGeminiモデルで生成に失敗しました。"
+        f"最終エラー：{last_error}"
     )
 
 
-# ==========================================
-# 商品情報の整理
-# ==========================================
+# --------------------------------
+# 商品情報取得
+# --------------------------------
 
-def get_product_info(selected_item=None):
-    product = selected_item or {}
+def get_product_info(item):
+    if not item:
+        return {}
 
     return {
-        "name": product.get("name", "未登録"),
-        "price": product.get("price", "未確認"),
-        "shop_name": product.get("shop_name", "未確認"),
-        "review_average": product.get("review_average", "未確認"),
-        "review_count": product.get("review_count", "未確認"),
-
-        # 通常の商品ページURL
-        "product_url": product.get("url", "未設定"),
-
-        # アフィリエイトURL
-        "affiliate_url": product.get("affiliate_url", "未設定"),
-
-        "verification_status": product.get(
+        "name": item.get("name", "未登録"),
+        "price": item.get("price", "未確認"),
+        "url": item.get("url", ""),
+        "affiliate_url": item.get("affiliate_url", ""),
+        "shop_name": item.get("shop_name", "未確認"),
+        "review_average": item.get("review_average", "未確認"),
+        "review_count": item.get("review_count", "未確認"),
+        "source_type": item.get("source_type", "未確認"),
+        "verification_status": item.get(
             "verification_status",
             "未確認"
         ),
-
-        "verified_by_user": product.get(
+        "verified_by_user": item.get(
             "verified_by_user",
             False
         ),
-
-        "is_demo": product.get(
-            "is_demo",
-            False
-        ),
+        "is_demo": item.get("is_demo", False),
     }
 
 
-def format_product_info(selected_item=None):
-    info = get_product_info(selected_item)
+def format_product_info(item):
+    info = get_product_info(item)
+
+    if not info:
+        return "商品情報なし"
 
     return f"""
 商品名：{info["name"]}
 価格：{info["price"]}
-ショップ：{info["shop_name"]}
+商品ページ：{info["url"]}
+アフィリエイトURL：{info["affiliate_url"]}
+ショップ名：{info["shop_name"]}
 評価：{info["review_average"]}
 口コミ件数：{info["review_count"]}
-通常の商品ページURL：{info["product_url"]}
-アフィリエイトURL：{info["affiliate_url"]}
+情報取得元：{info["source_type"]}
 確認状態：{info["verification_status"]}
-ユーザー確認済み：{info["verified_by_user"]}
+ユーザー確認：{info["verified_by_user"]}
 デモ商品：{info["is_demo"]}
 """
 
 
-# ==========================================
+# --------------------------------
 # 商品情報の確認状態
-# ==========================================
+# --------------------------------
 
-def is_product_verified(selected_item=None):
-    info = get_product_info(selected_item)
+def is_product_verified(item):
+    if not item:
+        return False
 
-    return (
-        info["verification_status"] == "確認済み"
-        and info["verified_by_user"] is True
-        and info["product_url"] not in ("", None, "未設定")
-        and info["affiliate_url"] not in ("", None, "未設定")
-        and info["is_demo"] is not True
-    )
+    if item.get("is_demo", False):
+        return False
+
+    if item.get("verification_status") != "確認済み":
+        return False
+
+    if not item.get("verified_by_user", False):
+        return False
+
+    product_url = (item.get("url") or "").strip()
+    affiliate_url = (item.get("affiliate_url") or "").strip()
+
+    if not product_url or not affiliate_url:
+        return False
+
+    return True
 
 
-# ==========================================
-# 未確認の仕様・性能表現の検出
-# ==========================================
+# --------------------------------
+# 根拠が必要な表現の検出
+# --------------------------------
 
-def detect_unverified_claims(
-    body,
-    selected_item=None,
-    article_type="一般記事"
-):
-    """
-    商品情報に根拠がない状態で、仕様・性能を断定する
-    表現が含まれていないか簡易検出する。
+UNVERIFIED_CLAIM_PATTERNS = [
+    (
+        r"話題の|話題になっている|注目の|注目されている",
+        "話題・注目の根拠が必要"
+    ),
+    (
+        r"人気の|人気商品|人気ブランド|大人気|高い人気",
+        "人気を示す根拠が必要"
+    ),
+    (
+        r"口コミで高評価|高評価が多い|評判が良い|好評",
+        "口コミ・評判の根拠が必要"
+    ),
+    (
+        r"売れている|売れ筋|ランキング上位|ベストセラー",
+        "販売実績・ランキングの根拠が必要"
+    ),
+    (
+        r"ダメージを軽減|ダメージを抑え|傷みにくい|髪を傷めない",
+        "ダメージ軽減効果の根拠が必要"
+    ),
+    (
+        r"ツヤが出る|ツヤ髪|艶髪|髪にツヤを与え",
+        "仕上がり効果の根拠が必要"
+    ),
+    (
+        r"水分を保つ|水分を閉じ込め|潤いを保つ|保湿効果",
+        "保湿・水分効果の根拠が必要"
+    ),
+    (
+        r"速い立ち上がり|すぐに使える|急速に温まる|高速加熱",
+        "加熱時間の根拠が必要"
+    ),
+    (
+        r"短時間で|時短になる|素早くスタイリング|効率よく",
+        "時間短縮効果の根拠が必要"
+    ),
+    (
+        r"高性能|優れた性能|抜群の性能|圧倒的",
+        "性能を裏付ける根拠が必要"
+    ),
+    (
+        r"軽量|軽い設計|コンパクト|持ち運びやすい",
+        "重量・寸法の根拠が必要"
+    ),
+    (
+        r"初心者でも簡単|誰でも使いやすい|使いやすい設計",
+        "使いやすさの根拠が必要"
+    ),
+    (
+        r"おすすめです|おすすめできる|最適です|最適な商品",
+        "推薦理由の具体性が必要"
+    ),
+]
 
-    この検出は完全な事実確認ではなく、
-    公開前の注意喚起を目的とする。
-    """
 
-    if article_type != "アフィリエイト記事":
-        return []
+def detect_unverified_claims(article, item=None):
+    warnings = []
 
-    info = get_product_info(selected_item)
+    if not article:
+        return warnings
 
-    claims = []
+    for pattern, message in UNVERIFIED_CLAIM_PATTERNS:
+        if re.search(pattern, article):
+            warnings.append(message)
 
-    # 商品確認ができていない場合の検出対象
-    product_verified = is_product_verified(selected_item)
+    info = get_product_info(item)
 
-    if not product_verified:
+    if info:
+        price = str(info.get("price", "未確認"))
+        review_count = str(info.get("review_count", "未確認"))
+        review_average = str(info.get("review_average", "未確認"))
 
-        patterns = [
-            (
-                r"立ち上がり.{0,20}(早い|速い|スピーディー|短い)",
-                "立ち上がり速度の根拠が未確認です。"
-            ),
-            (
-                r"温度.{0,20}(調整|設定|変更|切り替え)",
-                "温度調整機能の根拠が未確認です。"
-            ),
-            (
-                r"(プレート|パネル).{0,30}(加工|構造|素材|滑り|摩擦)",
-                "プレートの仕様・素材・性能の根拠が未確認です。"
-            ),
-            (
-                r"(髪|毛髪).{0,30}(ダメージを軽減|傷みにくい|負担を軽減)",
-                "髪へのダメージ軽減効果の根拠が未確認です。"
-            ),
-            (
-                r"(キューティクル|ツヤ|艶).{0,30}(整える|改善|保護|向上)",
-                "髪への効果の根拠が未確認です。"
-            ),
-            (
-                r"(軽量|軽い|コンパクト|持ちやすい)",
-                "重量・サイズ・使用感の根拠が未確認です。"
-            ),
-            (
-                r"(高速|速乾|時短|短時間).{0,30}(できる|実現|効果|便利)",
-                "時間短縮効果の根拠が未確認です。"
-            ),
-            (
-                r"(高性能|優れた性能|高機能|抜群の性能)",
-                "性能を評価する根拠が未確認です。"
-            ),
-            (
-                r"(口コミ|レビュー|評判).{0,30}(高い|良い|人気|好評)",
-                "口コミ・評判の根拠が未確認です。"
-            ),
-            (
-                r"(売れている|人気商品|話題の商品|注目を集めている)",
-                "人気・販売実績を示す根拠が未確認です。"
-            ),
-        ]
-
-        for pattern, message in patterns:
-            if re.search(pattern, body):
-                claims.append(message)
-
-    # 価格未確認時の価格断定
-    if info["price"] in ("未確認", "未登録", "", None):
-        if re.search(
-            r"(価格が高い|高価格|高めの価格|リーズナブル|安価|低価格)",
-            body
+        if (
+            price in ("", "未確認", "未登録", "None", "0")
+            and re.search(r"価格|円|値段|購入時", article)
         ):
-            claims.append(
-                "価格情報が未登録のため、価格に関する評価を確認できません。"
-            )
+            warnings.append("価格情報が未確認")
 
-    # 口コミ未確認時の口コミ断定
-    if (
-        info["review_average"] in ("未確認", "未登録", "", None)
-        or info["review_count"] in ("未確認", "未登録", "", None)
-    ):
-        if re.search(
-            r"(口コミで|レビューで|評価が高い|高評価|多くの人が支持)",
-            body
+        if (
+            review_count in ("", "未確認", "未登録", "None", "0")
+            and re.search(r"口コミ|レビュー|評価|評判", article)
         ):
-            claims.append(
-                "口コミ・評価情報が未登録のため、評価に関する記述を確認できません。"
-            )
+            warnings.append("口コミ件数が未確認")
 
-    return list(dict.fromkeys(claims))
+        if (
+            review_average in ("", "未確認", "未登録", "None", "0")
+            and re.search(r"高評価|評価が高い|星[0-9]", article)
+        ):
+            warnings.append("商品評価が未確認")
+
+    return list(dict.fromkeys(warnings))
 
 
-# ==========================================
-# 品質チェックの共通ルール
-# ==========================================
+# --------------------------------
+# PR表記チェック
+# --------------------------------
+
+def has_pr_disclosure(article):
+    if not article:
+        return False
+
+    disclosure_patterns = [
+        r"PR",
+        r"広告",
+        r"アフィリエイト広告",
+        r"プロモーション",
+        r"広告を含み",
+    ]
+
+    for pattern in disclosure_patterns:
+        if re.search(pattern, article, re.IGNORECASE):
+            return True
+
+    return False
+
+
+def has_intro_disclosure(article):
+    if not article:
+        return False
+
+    # 冒頭500文字以内にPR・広告表示があることを確認
+    intro = article[:500]
+
+    disclosure_patterns = [
+        r"PR",
+        r"広告",
+        r"アフィリエイト広告",
+        r"プロモーション",
+    ]
+
+    for pattern in disclosure_patterns:
+        if re.search(pattern, intro, re.IGNORECASE):
+            return True
+
+    return False
+
+
+# --------------------------------
+# 品質チェックルール
+# --------------------------------
 
 def get_evaluation_rules(article_type):
     if article_type == "アフィリエイト記事":
-
         return """
-【アフィリエイト記事の厳格評価基準】
+【アフィリエイト記事の厳格ルール】
 
-以下の項目を必ず評価してください。
+1. 未確認の商品情報を事実として書かない。
+2. 価格、口コミ件数、評価は確認できた場合のみ記載する。
+3. 人気・話題・売れ筋などは根拠がない限り使用禁止。
+4. 性能・効果を断定しない。
+5. 商品情報と本文の内容を照合する。
+6. 実際に使用したような体験談を捏造しない。
+7. 公式情報で確認できない仕様を書かない。
+8. メリット・デメリットを公平に説明する。
+9. PR・広告表示を記事冒頭に置く。
+10. アフィリエイトリンクの直前または近くにも広告表示を置く。
+11. 読者に誤解を与える表現を禁止する。
+12. 根拠のない推薦・ランキングを禁止する。
+13. 商品購入を急かす過度な表現を禁止する。
 
-1. 商品情報と登録情報が一致しているか
-2. 商品の機能・性能・価格を捏造していないか
-3. 口コミ・評価・販売実績を捏造していないか
-4. 未確認情報を事実として断定していないか
-5. 通常の商品ページURLが設定されているか
-6. アフィリエイトURLが設定されているか
-7. メリットとデメリットが公平に説明されているか
-8. 購入判断に必要な情報があるか
-9. 読者に自然な購入導線があるか
-10. 読みやすさ・構成・文章の自然さ
+【公開判定】
 
-【厳守事項】
+以下の問題が1つでも残っている場合、
+「公開推奨」と判定してはいけません。
 
-・商品情報に記載されていない性能や仕様は未確認扱い。
-・商品情報にない機能を推測で補わない。
-・未確認の価格、口コミ、評価、販売実績を事実として書かない。
-・外部サイトを確認したと装わない。
-・商品を実際に使用したような体験談を作らない。
-・「髪が傷まない」「必ず効果がある」などの断定を厳しく評価する。
-・「人気」「高評価」「話題」なども根拠がなければ問題として扱う。
-・商品情報が不足している場合は、点数を高くしすぎない。
-・商品ページURLとアフィリエイトURLを区別する。
-・アフィリエイト記事で広告表記がない場合は指摘する。
+・未確認情報を断定している
+・根拠のない性能・効果・人気表現がある
+・PR表記が記事冒頭にない
+・商品情報と本文が矛盾している
+・広告リンクがない
+・商品情報が未確認
 
-【点数の基準】
+判定は次の3種類のみ。
 
-90～100点：
-事実確認が十分で、重大な問題がなく公開可能。
-
-80～89点：
-軽微な修正で公開できる。
-
-60～79点：
-情報不足、未確認の断定などがあり、修正が必要。
-
-40～59点：
-重大な問題が複数あり、再構成・修正が必要。
-
-0～39点：
-捏造、誤情報、重大な欠陥が多く公開非推奨。
-
-未確認の機能・性能を断定している場合、
-文章が読みやすくても高得点を与えないでください。
+「公開推奨」
+「修正後に公開推奨」
+「公開非推奨」
 """
 
     return """
-【一般記事の評価基準】
+【一般記事のルール】
 
-以下の項目を評価してください。
+1. 誤情報を含めない。
+2. 根拠のない断定を避ける。
+3. 読者の悩みを解決する具体的な内容にする。
+4. 誇張表現を避ける。
+5. 読みやすい構成にする。
+6. 内容の重複を避ける。
+7. 実体験を捏造しない。
 
-1. 情報の正確性
-2. 読者にとって役立つ内容か
-3. 説明に具体性があるか
-4. 論理的で分かりやすい構成か
-5. タイトルと本文の内容が一致しているか
-6. 見出しや文章の読みやすさ
-7. 根拠のない断定や誇張がないか
-8. 読者が実際に行動できる情報があるか
-
-一般記事には商品紹介や販売目的の基準を適用しないでください。
-商品情報がないこと、商品URLがないこと、
-購入誘導がないことを減点しないでください。
-
-記事のテーマに必要な情報が不足している場合は指摘してください。
-外部サイトを確認したと装わないでください。
+一般記事はアフィリエイトリンクやPR表記を必須としない。
 """
 
 
-# ==========================================
+# --------------------------------
+# 点数をコード側で強制制限
+# --------------------------------
+
+def extract_score(text):
+    if not text:
+        return None
+
+    patterns = [
+        r"【評価】\s*(\d{1,3})\s*点",
+        r"評価[：:\s]*?(\d{1,3})\s*/\s*100",
+        r"(\d{1,3})\s*/\s*100点",
+        r"(\d{1,3})\s*点",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text)
+
+        if match:
+            score = int(match.group(1))
+            return max(0, min(100, score))
+
+    return None
+
+
+def replace_score(text, score):
+    if not text:
+        text = ""
+
+    patterns = [
+        r"【評価】\s*\d{1,3}\s*点",
+        r"評価[：:\s]*?\d{1,3}\s*/\s*100",
+        r"\d{1,3}\s*/\s*100点",
+        r"\d{1,3}\s*点",
+    ]
+
+    for pattern in patterns:
+        if re.search(pattern, text):
+            text = re.sub(
+                pattern,
+                f"【評価】 {score}点",
+                text,
+                count=1
+            )
+            return text
+
+    return f"【評価】 {score}点\n\n{text}"
+
+
+def replace_judgment(text, judgment):
+    if not text:
+        text = ""
+
+    patterns = [
+        r"【総合判定】[^\n]*",
+        r"総合判定[：:].*[^\n]*",
+    ]
+
+    for pattern in patterns:
+        if re.search(pattern, text):
+            text = re.sub(
+                pattern,
+                f"【総合判定】 {judgment}",
+                text,
+                count=1
+            )
+            return text
+
+    return f"【総合判定】 {judgment}\n\n{text}"
+
+
+# --------------------------------
 # 品質チェック
-# ==========================================
+# --------------------------------
 
 def check_article_quality(
     title,
@@ -317,200 +417,239 @@ def check_article_quality(
     selected_item=None,
     article_type="一般記事"
 ):
-    """
-    グミが記事を評価する。
-
-    AIによる評価に加え、未確認情報を
-    Python側で簡易検出する。
-    """
-
-    client = get_gemini_client()
-
     product_info = format_product_info(selected_item)
 
-    local_claims = detect_unverified_claims(
+    detected_claims = detect_unverified_claims(
         body,
-        selected_item,
-        article_type
+        selected_item
     )
 
     product_verified = is_product_verified(selected_item)
 
-    if article_type == "アフィリエイト記事":
-        verification_status = (
-            "確認済み"
-            if product_verified
-            else "未確認・情報不足"
-        )
-    else:
-        verification_status = "一般記事のため対象外"
+    disclosure_exists = has_pr_disclosure(body)
+    intro_disclosure_exists = has_intro_disclosure(body)
 
-    evaluation_rules = get_evaluation_rules(article_type)
+    hard_issues = []
+    soft_issues = []
+
+    # 商品情報確認
+    if article_type == "アフィリエイト記事":
+        if not selected_item:
+            hard_issues.append("商品情報が登録されていません。")
+
+        elif not product_verified:
+            hard_issues.append(
+                "商品情報が未確認、またはURL不足です。"
+            )
+
+        if not disclosure_exists:
+            hard_issues.append(
+                "PR・広告表記が記事内にありません。"
+            )
+
+        if not intro_disclosure_exists:
+            hard_issues.append(
+                "記事冒頭500文字以内にPR・広告表記がありません。"
+            )
+
+        if detected_claims:
+            soft_issues.extend(detected_claims)
 
     prompt = f"""
 あなたはAI Affiliate Officeの品質担当「グミ」です。
 
-記事の種類に合わせて公平かつ厳格に品質を確認してください。
-文章の読みやすさだけで高得点を与えないでください。
+記事を厳格にチェックしてください。
+特にアフィリエイト記事は、読者への誤情報を絶対に許容しません。
 
-【記事の種類】
-{article_type}
-
-【商品確認状態】
-{verification_status}
-
-【タイトル】
+【記事タイトル】
 {title}
 
-【本文】
-{body}
+【記事種類】
+{article_type}
 
-【登録商品情報】
+【商品情報】
 {product_info}
 
-【Pythonによる事前検出】
-{local_claims if local_claims else "特に検出なし"}
+【商品情報確認済み】
+{product_verified}
 
-{evaluation_rules}
+【プログラムが検出した問題】
+{detected_claims}
 
-【共通ルール】
+【プログラムが検出した重大な問題】
+{hard_issues}
 
-・記事本文にある具体的な事実を確認してください。
-・商品登録情報と本文を比較してください。
-・事実と意見を区別してください。
-・重大な問題と軽微な問題を区別してください。
-・問題がない項目も確認結果に含めてください。
-・記事の種類に合わない基準を適用しないでください。
-・外部サイトを確認したと装わないでください。
-・確認できない情報は「未確認」と明記してください。
-・検出された未確認情報は必ず指摘してください。
-・未確認情報を単に「一般的にあり得る」として合格にしないでください。
-・点数は実際の内容に基づいて厳格に判断してください。
+【プログラムが検出したPR表記】
+記事内：{disclosure_exists}
+冒頭：{intro_disclosure_exists}
+
+【記事本文】
+{body}
+
+{get_evaluation_rules(article_type)}
 
 【出力形式】
 
-【総合判定】
-公開推奨 / 修正後に公開推奨 / 公開非推奨
-
-【評価】
-100点満点で採点
-
-【商品情報確認状態】
-確認済み / 未確認 / 情報不足 / 一般記事のため対象外
+【総合判定】 公開推奨 / 修正後に公開推奨 / 公開非推奨
+【評価】 100点満点の点数
 
 【重大な問題】
-なければ「なし」と記載。
+問題がなければ「なし」
 
-【修正推奨箇所】
-修正前 → 修正案。
-なければ「なし」。
+【根拠確認が必要な表現】
+具体的な文章と、問題の理由を記載
+
+【修正箇所】
+修正が必要な文章と修正案
 
 【良い点】
-簡潔に記載。
+記事の良い部分
 
 【最終アドバイス】
-公開前に必要な対応を具体的に記載。
+公開前に必要な作業
 
-回答は簡潔かつ具体的にしてください。
+注意：
+問題がある場合は高得点をつけないでください。
+未確認情報や根拠のない断定が残っている場合、
+絶対に「公開推奨」と判定しないでください。
 """
 
     ai_result = generate_with_fallback(
-        client,
         prompt,
-        max_tokens=2200
+        max_output_tokens=5000
     )
 
-    # ======================================
-    # Python側の強制警告
-    # ======================================
+    if not ai_result:
+        ai_result = "品質チェック結果を取得できませんでした。"
 
-    warnings = []
+    # --------------------------------
+    # コードによる強制判定
+    # --------------------------------
 
-    if article_type == "アフィリエイト記事":
+    score = extract_score(ai_result)
 
-        if not product_verified:
-            warnings.append(
-                "商品情報が確認済みではありません。"
-                "商品ページURL、アフィリエイトURL、"
-                "ユーザー確認状態を確認してください。"
-            )
+    if score is None:
+        score = 50
 
-        if local_claims:
-            warnings.append(
-                "未確認の仕様・性能に関する表現を検出しました。"
-            )
-
-            for claim in local_claims:
-                warnings.append(f"・{claim}")
-
-    # ======================================
-    # AIの点数に対する上限設定
-    # ======================================
-
-    score_limit = None
+    score_limit = 100
+    forced_judgment = None
 
     if article_type == "アフィリエイト記事":
 
+        # 商品確認ができていない場合
         if not product_verified:
-            score_limit = 60
+            score_limit = min(score_limit, 49)
+            forced_judgment = "公開非推奨"
 
-        elif local_claims:
-            score_limit = 75
+        # 商品情報がない、URL不足、PR表示不足
+        if hard_issues:
+            score_limit = min(score_limit, 49)
+            forced_judgment = "公開非推奨"
 
-    result = ai_result
+        # 根拠不足表現が検出された場合
+        if detected_claims:
+            score_limit = min(score_limit, 59)
 
-    if warnings:
+            if forced_judgment is None:
+                forced_judgment = "修正後に公開推奨"
 
-        result += """
+        # PR表記の冒頭不足
+        if not intro_disclosure_exists:
+            score_limit = min(score_limit, 59)
+            forced_judgment = "修正後に公開推奨"
 
-━━━━━━━━━━━━━━━━━━━━
-【Pythonによる追加検査】
-━━━━━━━━━━━━━━━━━━━━
+        # 問題がある場合は公開推奨を禁止
+        if hard_issues or detected_claims:
+            forced_judgment = (
+                "公開非推奨"
+                if hard_issues
+                else "修正後に公開推奨"
+            )
 
-"""
+    # AIの点数を実際に制限する
+    final_score = min(score, score_limit)
 
-        result += "\n".join(warnings)
+    # 点数から判定を強制
+    if forced_judgment:
+        final_judgment = forced_judgment
 
-    if score_limit is not None:
+    elif final_score >= 80:
+        final_judgment = "公開推奨"
 
-        result += f"""
+    elif final_score >= 60:
+        final_judgment = "修正後に公開推奨"
 
-【追加の採点制限】
+    else:
+        final_judgment = "公開非推奨"
 
-商品情報の確認状態または未確認情報の検出により、
-AIの評価点に対する上限を {score_limit} 点に設定します。
+    ai_result = replace_score(
+        ai_result,
+        final_score
+    )
 
-AIが高得点を付けた場合でも、
-未確認情報が残っているため公開前の修正が必要です。
-"""
+    ai_result = replace_judgment(
+        ai_result,
+        final_judgment
+    )
 
-    return result
+    # --------------------------------
+    # 強制判定の説明を追加
+    # --------------------------------
+
+    enforcement_notes = []
+
+    if score_limit < 100:
+        enforcement_notes.append(
+            f"プログラムによる点数上限：{score_limit}点"
+        )
+
+    if hard_issues:
+        enforcement_notes.extend(hard_issues)
+
+    if detected_claims:
+        enforcement_notes.append(
+            "根拠確認が必要な表現："
+            + "、".join(detected_claims)
+        )
+
+    if enforcement_notes:
+        ai_result += "\n\n【プログラムによる強制判定】\n"
+        ai_result += "\n".join(
+            f"・{note}"
+            for note in enforcement_notes
+        )
+
+    return ai_result
 
 
-# ==========================================
-# アフィリエイトブロック保護
-# ==========================================
+# --------------------------------
+# アフィリエイトブロック抽出
+# --------------------------------
 
-def extract_affiliate_block(body):
-    start_marker = "<!-- AFFILIATE_BLOCK_START -->"
-    end_marker = "<!-- AFFILIATE_BLOCK_END -->"
+AFFILIATE_BLOCK_START = "<!-- AFFILIATE_BLOCK_START -->"
+AFFILIATE_BLOCK_END = "<!-- AFFILIATE_BLOCK_END -->"
 
-    if start_marker not in body or end_marker not in body:
+
+def extract_affiliate_block(article):
+    if not article:
         return ""
 
-    try:
-        start = body.index(start_marker)
-        end = body.index(end_marker) + len(end_marker)
+    if (
+        AFFILIATE_BLOCK_START in article
+        and AFFILIATE_BLOCK_END in article
+    ):
+        start = article.find(AFFILIATE_BLOCK_START)
+        end = article.find(AFFILIATE_BLOCK_END)
 
-        return body[start:end]
+        if end >= start:
+            return article[start:end + len(AFFILIATE_BLOCK_END)]
 
-    except ValueError:
-        return ""
+    return ""
 
 
-# ==========================================
-# 記事修正
-# ==========================================
+# --------------------------------
+# ボボによる自動修正
+# --------------------------------
 
 def revise_article(
     title,
@@ -519,132 +658,111 @@ def revise_article(
     selected_item=None,
     article_type="一般記事"
 ):
-    """
-    ボボが品質チェックの指摘を反映して修正する。
-    未確認情報の削除・表現変更を優先する。
-    """
-
-    client = get_gemini_client()
+    original_affiliate_block = extract_affiliate_block(body)
 
     product_info = format_product_info(selected_item)
 
-    affiliate_block = extract_affiliate_block(body)
-
-    if article_type == "アフィリエイト記事":
-
-        revision_rules = """
-【アフィリエイト記事の厳格修正ルール】
-
-・品質チェックの重大な指摘を優先して修正する。
-・登録商品情報を優先する。
-・商品情報にない機能や性能を追加しない。
-・未確認の価格、口コミ、評価を捏造しない。
-・実際に使用していない商品の体験談を作らない。
-・誇張表現や根拠のない断定を削除する。
-・未確認の性能は断定せず、削除するか確認を促す表現に変更する。
-・「髪へのダメージを軽減」などの効果は根拠がなければ断定しない。
-・「立ち上がりが早い」などの性能は根拠がなければ削除する。
-・商品URLがない場合は勝手に作らない。
-・商品情報が不足している場合は推測せず、購入前の確認事項として書く。
-・メリットとデメリットを公平に書く。
-・購入を強制する表現を使わない。
-・自然で読みやすい文章にする。
-・記事のテーマと有益な情報は維持する。
-・不要な水増しをしない。
-"""
-
-    else:
-
-        revision_rules = """
-【一般記事の修正ルール】
-
-・品質チェックの重大な指摘を優先して修正する。
-・読者に役立つ情報を増やす。
-・文章の流れと論理構成を改善する。
-・具体例や実践方法を必要に応じて加える。
-・根拠のない断定や誇張表現を削除する。
-・事実が確認できない内容を作らない。
-・商品紹介や販売目的の文章を無理に追加しない。
-・商品URLや購入への誘導を無理に追加しない。
-・元の記事の有益な情報と構成はできるだけ残す。
-"""
+    detected_claims = detect_unverified_claims(
+        body,
+        selected_item
+    )
 
     prompt = f"""
 あなたはAI Affiliate Officeの執筆担当「ボボ」です。
 
-品質チェック結果を反映し、
-note掲載用の記事に修正してください。
+グミの品質チェック結果に従い、記事を修正してください。
 
-【記事の種類】
-{article_type}
-
-【タイトル】
+【記事タイトル】
 {title}
 
-【元の記事】
-{body}
+【記事種類】
+{article_type}
+
+【商品情報】
+{product_info}
 
 【品質チェック結果】
 {quality_result}
 
-【登録商品情報】
-{product_info}
+【現在の記事】
+{body}
 
-{revision_rules}
+【修正ルール】
 
-【共通ルール】
+1. グミの指摘事項をすべて修正する。
+2. 未確認情報は削除する。
+3. 未確認の価格・口コミ・評価を作らない。
+4. 未確認の人気・話題・売れ筋表現を削除する。
+5. 未確認の性能・効果を断定しない。
+6. 実際に使用したような体験談を作らない。
+7. 公式情報で確認できない仕様を書かない。
+8. 読者に誤解を与える表現を削除する。
+9. 商品情報が不足している場合は、確認できない旨を明記する。
+10. 読みやすい日本語に修正する。
+11. 元の記事の構成と良い点は可能な限り維持する。
+12. アフィリエイト記事の場合、記事冒頭に「PR」「広告」などの
+    明確な表示を追加する。
+13. アフィリエイトリンクの近くにも広告表示を配置する。
+14. 「こんにちは、ボボです」などの不要な挨拶を入れない。
+15. 記事本文のみを出力する。修正解説は不要。
 
-・自然で読みやすい日本語にする。
-・元の記事のテーマから逸脱しない。
-・情報を水増しするための不要な文章を追加しない。
-・品質チェックの指摘が誤っている場合は無理に採用しない。
-・未確認情報を事実として書かない。
-・不明な機能や性能を推測で補わない。
-・不明な情報は削除するか、確認が必要な旨を自然に記載する。
-・商品を使用した体験談を捏造しない。
-・記事の内容を具体的に改善する。
-・修正前と同じ問題が残らないよう確認する。
+【アフィリエイト記事の追加ルール】
 
-【アフィリエイトリンク保護】
+商品情報が確認済みでも、確認できていない性能や効果を
+勝手に追加してはいけません。
 
-以下のアフィリエイトブロックが元の記事に存在する場合、
-リンクURLと広告表記を変更せず、
-修正後の記事にも必ず残してください。
+確認できる情報だけを使用してください。
 
-【元のアフィリエイトブロック】
-{affiliate_block if affiliate_block else "元記事にアフィリエイトブロックはありません。"}
+元の記事のアフィリエイトリンク・商品名・URLは
+変更しないでください。
 
-【出力】
-
-修正後の記事だけを出力してください。
-
-タイトルと見出しを含め、
-noteに掲載できる完成原稿にしてください。
-
-修正理由、採点、解説は出力しないでください。
 """
 
-    revised = generate_with_fallback(
-        client,
+    revised_article = generate_with_fallback(
         prompt,
-        max_tokens=6000
+        max_output_tokens=6000
     )
 
-    # ======================================
-    # アフィリエイトブロックの保護
-    # ======================================
+    if not revised_article:
+        return body
 
-    if affiliate_block:
+    revised_article = revised_article.strip()
 
-        start_marker = "<!-- AFFILIATE_BLOCK_START -->"
-        end_marker = "<!-- AFFILIATE_BLOCK_END -->"
+    # --------------------------------
+    # 元のリンクブロックを保護
+    # --------------------------------
 
-        if (
-            start_marker not in revised
-            or end_marker not in revised
-        ):
+    if original_affiliate_block:
 
-            # AIがブロックを削除した場合、元のブロックを復元
-            revised = revised.rstrip() + "\n\n" + affiliate_block
+        # 修正版にリンクブロックが複数あれば一度除去
+        if AFFILIATE_BLOCK_START in revised_article:
+            revised_article = revised_article.split(
+                AFFILIATE_BLOCK_START,
+                1
+            )[0].rstrip()
 
-    return revised.strip()
+        # 元の正しいリンクブロックを末尾に復元
+        revised_article = (
+            revised_article.rstrip()
+            + "\n\n"
+            + original_affiliate_block
+        )
+
+    # --------------------------------
+    # PR表記を記事冒頭に強制挿入
+    # --------------------------------
+
+    if article_type == "アフィリエイト記事":
+
+        if not has_intro_disclosure(revised_article):
+
+            disclosure = (
+                "※本記事にはアフィリエイト広告が含まれています。\n\n"
+            )
+
+            revised_article = (
+                disclosure
+                + revised_article.lstrip()
+            )
+
+    return revised_article
