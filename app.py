@@ -103,6 +103,8 @@ def is_product_verified(item):
 AFFILIATE_BLOCK_START = "<!-- AFFILIATE_BLOCK_START -->"
 AFFILIATE_BLOCK_END = "<!-- AFFILIATE_BLOCK_END -->"
 
+PR_DISCLOSURE = "※本記事にはアフィリエイト広告が含まれています。"
+
 
 def insert_affiliate_link(article, item):
     if not article or not item:
@@ -126,6 +128,13 @@ def insert_affiliate_link(article, item):
         if old_heading in article:
             article = article.split(old_heading, 1)[0].rstrip()
 
+    # 冒頭500文字以内にPR表記を設置
+    if not any(
+        word in article[:500]
+        for word in ["PR", "広告", "アフィリエイト広告", "プロモーション"]
+    ):
+        article = PR_DISCLOSURE + "\n\n" + article.lstrip()
+
     link_block = f"""{AFFILIATE_BLOCK_START}
 ## 気になる方はこちら
 
@@ -147,6 +156,30 @@ def has_affiliate_link_block(article):
         and AFFILIATE_BLOCK_START in article
         and AFFILIATE_BLOCK_END in article
     )
+
+
+def ensure_pr_disclosure(article):
+    if not article:
+        return article
+
+    if not any(
+        word in article[:500]
+        for word in ["PR", "広告", "アフィリエイト広告", "プロモーション"]
+    ):
+        return PR_DISCLOSURE + "\n\n" + article.lstrip()
+
+    return article
+
+
+def get_article_title(body, fallback="無題の記事"):
+    if not body:
+        return fallback
+
+    for line in body.splitlines():
+        if line.strip():
+            return line.lstrip("# ").strip()
+
+    return fallback
 
 
 # --------------------------------
@@ -419,7 +452,10 @@ if selected_item:
                     st.success("商品情報を確認済みにしました！")
                     st.rerun()
 
-    if st.button("選択した商品を解除する"):
+    if st.button(
+        "選択した商品を解除する",
+        key="remove_selected_product"
+    ):
         st.session_state["selected_rakuten_item"] = None
         st.rerun()
 
@@ -925,16 +961,7 @@ if st.session_state.get("generated_article"):
                 )
 
                 article_text = st.session_state["generated_article"]
-                article_lines = article_text.splitlines()
-
-                article_title = next(
-                    (
-                        line.lstrip("# ").strip()
-                        for line in article_lines
-                        if line.strip()
-                    ),
-                    "無題の記事"
-                )
+                article_title = get_article_title(article_text)
 
                 quality_result = check_article_quality(
                     title=article_title,
@@ -1000,14 +1027,7 @@ if st.session_state.get("quality_result"):
                 )
 
                 revised_article = revise_article(
-                    title=next(
-                        (
-                            line.lstrip("# ").strip()
-                            for line in current_article.splitlines()
-                            if line.strip()
-                        ),
-                        "無題の記事"
-                    ),
+                    title=get_article_title(current_article),
                     body=current_article,
                     quality_result=quality_result,
                     selected_item=selected_item,
@@ -1024,6 +1044,10 @@ if st.session_state.get("quality_result"):
                     revised_article = revised_article.strip()
 
                     if generated_article_type == "アフィリエイト記事":
+
+                        revised_article = ensure_pr_disclosure(
+                            revised_article
+                        )
 
                         revised_article = insert_affiliate_link(
                             revised_article,
@@ -1115,14 +1139,22 @@ if st.session_state.get("generated_article"):
         else:
             st.error("アフィリエイトリンク：未挿入です")
 
+    preview_key = f"generated_article_preview_{revision}"
+
     st.text_area(
         "記事内容",
         value=generated_text,
         height=400,
-        key=f"generated_article_preview_{revision}"
+        key=preview_key
     )
 
     if st.button("📚 この記事を保存する", use_container_width=True):
+
+        # 編集欄の内容を保存対象にする
+        generated_text = st.session_state.get(
+            preview_key,
+            generated_text
+        )
 
         generated_item = st.session_state.get(
             "generated_selected_item"
@@ -1162,16 +1194,7 @@ if st.session_state.get("generated_article"):
                     )
                     st.stop()
 
-                article_lines = generated_text.splitlines()
-
-                title = next(
-                    (
-                        line.lstrip("# ").strip()
-                        for line in article_lines
-                        if line.strip()
-                    ),
-                    "無題の記事"
-                )
+                title = get_article_title(generated_text)
 
                 add_article(title, generated_text)
 
@@ -1195,16 +1218,7 @@ if st.session_state.get("generated_article"):
 
         else:
 
-            article_lines = generated_text.splitlines()
-
-            title = next(
-                (
-                    line.lstrip("# ").strip()
-                    for line in article_lines
-                    if line.strip()
-                ),
-                "無題の記事"
-            )
+            title = get_article_title(generated_text)
 
             add_article(title, generated_text)
 
@@ -1231,7 +1245,7 @@ st.divider()
 
 
 # --------------------------------
-# 保存済み記事・編集機能
+# 保存済み記事・編集・品質チェック機能
 # --------------------------------
 
 st.header("📚 保存済み記事")
@@ -1247,46 +1261,268 @@ if saved_articles:
 
     selected_title = st.selectbox(
         "編集する記事を選択",
-        list(article_options.keys())
+        list(article_options.keys()),
+        key="saved_article_selector"
     )
 
     selected_article = article_options[selected_title]
+    article_id = selected_article["id"]
+
+    # 記事ごとに独立したセッションキー
+    title_key = f"saved_title_{article_id}"
+    body_key = f"saved_body_{article_id}"
+    quality_key = f"saved_quality_{article_id}"
+    quality_body_key = f"saved_quality_body_{article_id}"
+    quality_title_key = f"saved_quality_title_{article_id}"
+    pending_revision_key = f"pending_saved_revision_{article_id}"
+
+    # 初回だけDBの内容を編集欄へ読み込む
+    if title_key not in st.session_state:
+        st.session_state[title_key] = selected_article["title"]
+
+    if body_key not in st.session_state:
+        st.session_state[body_key] = selected_article["body"]
+
+    # 自動修正後の本文を編集欄に反映
+    if pending_revision_key in st.session_state:
+        st.session_state[body_key] = st.session_state.pop(
+            pending_revision_key
+        )
+
+    # --------------------------------
+    # 記事編集
+    # --------------------------------
 
     st.subheader("✏️ 記事の編集")
 
     edited_title = st.text_input(
         "記事タイトル",
-        value=selected_article["title"],
-        key=f"title_{selected_article['id']}"
+        key=title_key
     )
 
     edited_body = st.text_area(
         "記事本文",
-        value=selected_article["body"],
         height=400,
-        key=f"body_{selected_article['id']}"
+        key=body_key
     )
 
-    if st.button("💾 記事を更新", use_container_width=True):
+    # --------------------------------
+    # 記事種類の自動判定
+    # --------------------------------
+
+    if (
+        AFFILIATE_BLOCK_START in edited_body
+        or "アフィリエイト広告" in edited_body
+        or "アフィリエイトリンク" in edited_body
+    ):
+        saved_article_type = "アフィリエイト記事"
+    else:
+        saved_article_type = "一般記事"
+
+    st.caption(f"記事種類の判定：{saved_article_type}")
+
+    # --------------------------------
+    # 保存済み記事の品質チェック
+    # --------------------------------
+
+    st.divider()
+    st.subheader("🔍 保存済み記事の品質チェック")
+
+    st.caption(
+        "現在編集欄に表示されているタイトル・本文を直接チェックします。"
+        "保存前の記事でもチェックできます。"
+    )
+
+    if saved_article_type == "アフィリエイト記事":
+        st.warning(
+            "保存済み記事には商品情報が保存されていないため、"
+            "商品情報の確認状態は未確認として評価します。"
+        )
+
+    if st.button(
+        "🔍 この保存済み記事を品質チェック",
+        key=f"saved_check_button_{article_id}",
+        use_container_width=True
+    ):
+
+        if not edited_title.strip():
+            st.warning("記事タイトルを入力してください。")
+
+        elif not edited_body.strip():
+            st.warning("記事本文を入力してください。")
+
+        else:
+            try:
+                with st.spinner("グミが現在の編集内容を確認しています..."):
+
+                    quality_result = check_article_quality(
+                        title=edited_title.strip(),
+                        body=edited_body,
+                        selected_item=None,
+                        article_type=saved_article_type
+                    )
+
+                    st.session_state[quality_key] = quality_result
+                    st.session_state[quality_body_key] = edited_body
+                    st.session_state[quality_title_key] = edited_title.strip()
+
+                st.success("品質チェックが完了しました！")
+
+            except Exception as e:
+                st.error(f"品質チェックエラー：{e}")
+
+    # --------------------------------
+    # チェック結果表示
+    # --------------------------------
+
+    current_quality_result = st.session_state.get(quality_key)
+
+    quality_is_current = (
+        current_quality_result
+        and st.session_state.get(quality_body_key) == edited_body
+        and st.session_state.get(quality_title_key) == edited_title.strip()
+    )
+
+    if quality_is_current:
+
+        st.markdown("### 📋 グミのチェック結果")
+        st.markdown(current_quality_result)
+
+        # --------------------------------
+        # 自動修正
+        # --------------------------------
+
+        st.divider()
+        st.subheader("✍️ ボボによる自動修正")
+
+        st.caption(
+            "品質チェック結果をもとに、現在の編集内容を修正します。"
+            "修正後は保存前に内容を確認してください。"
+        )
+
+        if st.button(
+            "🛠️ この保存済み記事を自動修正",
+            key=f"saved_revision_button_{article_id}",
+            use_container_width=True
+        ):
+
+            try:
+                with st.spinner("ボボが記事を修正しています..."):
+
+                    revised_article = revise_article(
+                        title=edited_title.strip(),
+                        body=edited_body,
+                        quality_result=current_quality_result,
+                        selected_item=None,
+                        article_type=saved_article_type
+                    )
+
+                if not revised_article or not revised_article.strip():
+                    st.error("修正後の記事が空でした。")
+
+                else:
+
+                    revised_article = revised_article.strip()
+
+                    if saved_article_type == "アフィリエイト記事":
+
+                        revised_article = ensure_pr_disclosure(
+                            revised_article
+                        )
+
+                        # 元のアフィリエイトリンクブロックを維持・再挿入
+                        if AFFILIATE_BLOCK_START in edited_body:
+                            affiliate_block = edited_body.split(
+                                AFFILIATE_BLOCK_START,
+                                1
+                            )[1]
+
+                            if AFFILIATE_BLOCK_END in affiliate_block:
+                                affiliate_block = (
+                                    AFFILIATE_BLOCK_START
+                                    + affiliate_block.split(
+                                        AFFILIATE_BLOCK_END,
+                                        1
+                                    )[0]
+                                    + AFFILIATE_BLOCK_END
+                                )
+
+                                revised_article = (
+                                    revised_article.split(
+                                        AFFILIATE_BLOCK_START,
+                                        1
+                                    )[0].rstrip()
+                                )
+
+                                revised_article = (
+                                    revised_article
+                                    + "\n\n"
+                                    + affiliate_block
+                                )
+
+                    st.session_state[pending_revision_key] = revised_article
+
+                    st.session_state.pop(quality_key, None)
+                    st.session_state.pop(quality_body_key, None)
+                    st.session_state.pop(quality_title_key, None)
+
+                    st.success("ボボが記事を修正しました！")
+                    st.info(
+                        "修正内容が編集欄に反映されます。"
+                        "内容を確認し、もう一度品質チェックしてください。"
+                    )
+                    st.rerun()
+
+            except Exception as e:
+                st.error(f"自動修正エラー：{e}")
+
+    elif current_quality_result:
+        st.warning(
+            "記事が変更されています。最新の編集内容を再チェックしてください。"
+        )
+
+    # --------------------------------
+    # 記事更新・保存
+    # --------------------------------
+
+    st.divider()
+    st.subheader("💾 記事の保存")
+
+    if st.button(
+        "💾 記事を更新・保存",
+        key=f"saved_update_button_{article_id}",
+        use_container_width=True
+    ):
 
         if not edited_title.strip() or not edited_body.strip():
             st.warning("タイトルと本文を入力してください。")
 
         else:
-            update_article(
-                selected_article["id"],
-                edited_title.strip(),
-                edited_body.strip()
-            )
+            try:
+                update_article(
+                    article_id,
+                    edited_title.strip(),
+                    edited_body.strip()
+                )
 
-            st.success("記事を更新しました！")
-            st.rerun()
+                st.session_state.pop(quality_key, None)
+                st.session_state.pop(quality_body_key, None)
+                st.session_state.pop(quality_title_key, None)
+
+                st.success("記事を更新・保存しました！")
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"記事の保存エラー：{e}")
+
+    # --------------------------------
+    # 保存済み記事一覧
+    # --------------------------------
 
     st.divider()
     st.subheader("📖 保存済み記事一覧")
 
     for article in saved_articles:
-
         with st.expander(article["title"]):
             st.caption(f"状態：{article['status']}")
             st.markdown(article["body"])
